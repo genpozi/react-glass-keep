@@ -2,3 +2,5 @@
 export { useAuth } from './useAuth';
 export { useNotes } from './useNotes';
 export { useSettings } from './useSettings';
+export { useCollaboration } from './useCollaboration';
+export { useAdmin } from './useAdmin';
