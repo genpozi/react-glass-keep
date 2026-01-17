@@ -6,7 +6,7 @@ import { marked as markedParser } from "marked";
 import DrawingCanvas from "./DrawingCanvas";
 import { BACKGROUNDS } from "./backgrounds";
 import { ACCENT_COLORS, THEME_PRESETS } from "./themes";
-import { useAuth, useNotes, useSettings } from "./hooks";
+import { useAuth, useNotes, useSettings, useCollaboration, useAdmin } from "./hooks";
 
 // Ensure we can call marked.parse(...)
 const marked =
@@ -3776,15 +3776,24 @@ export default function App() {
   const modalScrollRef = useRef(null);
   const [modalScrollable, setModalScrollable] = useState(false);
 
-  // SSE connection status
-  const [sseConnected, setSseConnected] = useState(false);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  // Hook: Real-time collaboration via SSE
+  const { sseConnected, isOnline } = useCollaboration({
+    token,
+    tagFilter,
+    onNotesUpdated: () => {
+      if (tagFilter === 'ARCHIVED') {
+        loadArchivedNotes().catch(() => {});
+      } else {
+        loadNotes().catch(() => {});
+      }
+    }
+  });
+
+  // Hook: Admin panel operations
+  const { adminSettings, allUsers, newUserForm, setNewUserForm, updateAdminSettings, createUser, deleteUser, updateUser, loadAdminPanel } = useAdmin(token);
 
   // Admin panel state
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
-  const [adminSettings, setAdminSettings] = useState({ allowNewAccounts: true });
-  const [allUsers, setAllUsers] = useState([]);
-  const [newUserForm, setNewUserForm] = useState({ name: '', email: '', password: '', is_admin: false });
   const [allowRegistration, setAllowRegistration] = useState(true);
 
   // Settings panel state
@@ -3966,193 +3975,8 @@ export default function App() {
   // Handle token expiration globally - must be after signOut is defined
   // This will be added after signOut is defined below
 
-  useEffect(() => {
-    if (token) {
-      loadNotes().catch(() => { });
-    }
-    if (!token) return;
-
-    let es;
-    let reconnectTimeout;
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 10;
-    const baseReconnectDelay = 1000;
-
-    const connectSSE = () => {
-      try {
-        const url = new URL(`${window.location.origin}/api/events`);
-        url.searchParams.set("token", token);
-        url.searchParams.set("_t", Date.now()); // Cache buster for PWA
-        es = new EventSource(url.toString());
-
-        es.onopen = () => {
-          console.log("SSE connected");
-          setSseConnected(true);
-          reconnectAttempts = 0;
-        };
-
-        es.onmessage = (e) => {
-          try {
-            const msg = JSON.parse(e.data || '{}');
-            if (msg && msg.type === 'note_updated') {
-              // Refresh notes list on any note update relevant to this user
-              if (tagFilter === 'ARCHIVED') {
-                loadArchivedNotes().catch(() => { });
-              } else {
-                loadNotes().catch(() => { });
-              }
-            }
-          } catch (e) { }
-        };
-
-        es.addEventListener('note_updated', (e) => {
-          try {
-            const msg = JSON.parse(e.data || '{}');
-            if (msg && msg.noteId) {
-              if (tagFilter === 'ARCHIVED') {
-                loadArchivedNotes().catch(() => { });
-              } else {
-                loadNotes().catch(() => { });
-              }
-            }
-          } catch (e) { }
-        });
-
-        es.onerror = (error) => {
-          console.log("SSE error, attempting reconnect...", error);
-          setSseConnected(false);
-
-          // Check if SSE is in a failed state (readyState 2 = CLOSED, usually means 401/auth error)
-          if (es.readyState === EventSource.CLOSED) {
-            // If it's closed due to auth error, check if token is still valid
-            // The event source might have been closed due to 401
-            const currentAuth = getAuth();
-            if (!currentAuth || !currentAuth.token) {
-              // Token is missing, don't try to reconnect
-              console.log("SSE closed - no valid token, stopping reconnection");
-              return;
-            }
-          }
-
-          es.close();
-
-          if (reconnectAttempts < maxReconnectAttempts) {
-            const delay = baseReconnectDelay * Math.pow(2, reconnectAttempts);
-            reconnectTimeout = setTimeout(() => {
-              reconnectAttempts++;
-              // Check token before reconnecting
-              const currentAuth = getAuth();
-              if (!currentAuth || !currentAuth.token) {
-                console.log("SSE reconnection cancelled - no valid token");
-                return;
-              }
-              connectSSE();
-            }, delay);
-          } else {
-            console.log("SSE reconnection attempts exhausted");
-          }
-        };
-
-      } catch (error) {
-        console.error("Failed to create EventSource:", error);
-      }
-    };
-
-    connectSSE();
-
-    // Fallback polling mechanism in case SSE fails
-    let pollInterval;
-    const startPolling = () => {
-      pollInterval = setInterval(() => {
-        // Only poll if SSE is not connected
-        if (!es || es.readyState === EventSource.CLOSED) {
-          if (tagFilter === 'ARCHIVED') {
-            loadArchivedNotes().catch(() => { });
-          } else {
-            loadNotes().catch(() => { });
-          }
-        }
-      }, 30000); // Poll every 30 seconds as fallback
-    };
-
-    // Start polling after a delay
-    const pollTimeout = setTimeout(startPolling, 10000);
-
-
-
-    // Handle page visibility changes (PWA background/foreground)
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible') {
-        // Page became visible, validate token first
-        try {
-          // Quick health check - this will fail with 401 if token is expired
-          await api("/health", { token });
-
-          // Token is valid, reconnect if needed
-          if (es && es.readyState === EventSource.CLOSED) {
-            connectSSE();
-          }
-
-          // Also refresh notes when page becomes visible
-          if (tagFilter === 'ARCHIVED') {
-            loadArchivedNotes().catch(() => { });
-          } else {
-            loadNotes().catch(() => { });
-          }
-        } catch (error) {
-          // If health check fails with 401, the api function will handle auth expiration
-          // Otherwise, just log and try to reconnect anyway
-          if (error.status !== 401) {
-            console.error("Error checking connection:", error);
-            // Still try to reconnect SSE and refresh notes on other errors
-            if (es && es.readyState === EventSource.CLOSED) {
-              connectSSE();
-            }
-            if (tagFilter === 'ARCHIVED') {
-              loadArchivedNotes().catch(() => { });
-            } else {
-              loadNotes().catch(() => { });
-            }
-          }
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Handle online/offline events
-    const handleOnline = () => {
-      console.log("App went online");
-      setIsOnline(true);
-    };
-
-    const handleOffline = () => {
-      console.log("App went offline");
-      setIsOnline(false);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      setSseConnected(false);
-      try {
-        if (es) es.close();
-      } catch (e) { }
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-      if (pollTimeout) {
-        clearTimeout(pollTimeout);
-      }
-      if (pollInterval) {
-        clearInterval(pollInterval);
-      }
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [token]);
+  // SSE connection and real-time sync is now handled by useCollaboration hook
+  // which manages EventSource, reconnection, polling, visibility changes, and online/offline events
 
   // Live-sync checklist items in open modal when remote updates arrive
   useEffect(() => {
@@ -4506,73 +4330,16 @@ export default function App() {
     }
   };
 
-  /** -------- Admin Panel Functions -------- */
-  const loadAdminSettings = async () => {
-    try {
-      console.log("Loading admin settings...");
-      const settings = await api("/admin/settings", { token });
-      console.log("Admin settings loaded:", settings);
-      setAdminSettings(settings);
-    } catch (e) {
-      console.error("Failed to load admin settings:", e);
-    }
-  };
-
-  const updateAdminSettings = async (newSettings) => {
-    try {
-      const settings = await api("/admin/settings", { method: "PATCH", token, body: newSettings });
-      setAdminSettings(settings);
-    } catch (e) {
-      alert(e.message || "Failed to update admin settings");
-    }
-  };
-
-  const loadAllUsers = async () => {
-    try {
-      console.log("Loading all users...");
-      const users = await api("/admin/users", { token });
-      console.log("Users loaded:", users);
-      setAllUsers(users);
-    } catch (e) {
-      console.error("Failed to load users:", e);
-    }
-  };
-
-  const createUser = async (userData) => {
-    try {
-      const newUser = await api("/admin/users", { method: "POST", token, body: userData });
-      setAllUsers(prev => [newUser, ...prev]);
-      setNewUserForm({ name: '', email: '', password: '', is_admin: false });
-      return newUser;
-    } catch (e) {
-      alert(e.message || "Failed to create user");
-      throw e;
-    }
-  };
-
-  const deleteUser = async (userId) => {
-    try {
-      await api(`/admin/users/${userId}`, { method: "DELETE", token });
-      setAllUsers(prev => prev.filter(u => u.id !== userId));
-    } catch (e) {
-      alert(e.message || "Failed to delete user");
-    }
-  };
-
-  const updateUser = async (userId, userData) => {
-    const updatedUser = await api(`/admin/users/${userId}`, { method: "PATCH", token, body: userData });
-    setAllUsers(prev => prev.map(u => u.id === userId ? updatedUser : u));
-    return updatedUser;
-  };
+  /** -------- Admin Panel Functions (moved to useAdmin hook) -------- */
+  // All admin operations are now handled by the useAdmin hook:
+  // - loadAdminSettings, updateAdminSettings, loadAllUsers, 
+  // - createUser, deleteUser, updateUser, loadAdminPanel
 
   const openAdminPanel = async () => {
     console.log("Opening admin panel...");
     setAdminPanelOpen(true);
     try {
-      await Promise.all([
-        loadAdminSettings(),
-        loadAllUsers()
-      ]);
+      await loadAdminPanel();
       console.log("Admin panel data loaded successfully");
     } catch (error) {
       console.error("Error loading admin panel data:", error);
