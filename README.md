@@ -1,6 +1,8 @@
 # Glass Keep
 
-A sleek, Keep-style notes app with Markdown, checklists, images, tag chips, color themes, dark mode, drag-and-drop reordering, import/export, auth, and a glassy UI — built with Vite + React and a tiny Express + SQLite API.
+A sleek, Keep-style notes app with Markdown, checklists, images, tag chips, color themes, dark mode, drag-and-drop reordering, import/export, auth, real-time collaboration, and a glassy UI — built with Vite + React and a tiny Express + SQLite API.
+
+**Current Development Status:** Phase 2.2 (Architecture Refactoring) - See [DEVELOPMENT_CONTEXT.md](docs/DEVELOPMENT_CONTEXT.md) for details.
 
 ---
 **Web App Screenshots**

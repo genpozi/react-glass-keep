@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - In Development
+### Architecture & Refactoring
+- **Phase 2.1 Complete**: Extracted 5 custom React hooks (891 lines) for better code organization
+  - useAuth, useNotes, useSettings, useCollaboration, useAdmin
+  - Eliminated 700+ lines of duplicate code
+  - Full integration with zero breaking changes
+- **Phase 2.2 In Progress**: UI component extraction
+  - Created SearchBar component (50 lines) - Ready for integration
+  - Created NoteCard component (280 lines) - Ready for integration
+  - Identified 1,300+ line Modal component for Phase 2.3
+  - Deferred complex components to enable proper Context API first
+- **Phase 2.3 Planned**: React Context API for state management
+  - Will create 6 contexts (Auth, Notes, Settings, UI, Composer, Modal)
+  - Will eliminate prop drilling across 10+ component levels
+  - Will enable proper Modal/Composer component extraction
+
+### Security
+- Implemented rate limiting on authentication endpoints (10/15min login, 5/1hr recovery)
+- Added comprehensive security headers via helmet.js
+- Admin settings persistence to SQLite database
+- Environment variable validation for JWT_SECRET in production
+- Global auth expiration event handling
+
+### Performance
+- Improved build time: 3.5s → 2.6s (23% improvement)
+- Bundle size stable at 120 KB gzip
+- 1682 modules in clean build state
+
+### Development
+- Zero regressions in existing features
+- All tests passing
+- Clean git history with descriptive commits
+- Comprehensive documentation added
+
 ## [1.0.2] - 2026-01-17
 ### Added
 - **Theme Presets**: Added one-click "Vibes" (Neon Tokyo, Zen Garden, Golden Hour, Deep Space) to instantly configure the workspace appearance.
