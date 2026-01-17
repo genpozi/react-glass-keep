@@ -1,5 +1,6 @@
-import React, { createContext, useState, useCallback, useEffect, useContext } from 'react';
+import React, { createContext, useState, useCallback, useContext } from 'react';
 import { AuthContext } from './AuthContext';
+import { useCollaboration } from '../hooks/useCollaboration';
 
 export const NotesContext = createContext();
 
@@ -10,13 +11,13 @@ const CACHE_TIMESTAMP_KEY = "glass-keep-notes-cache-timestamp";
 /**
  * NotesProvider Component
  * Provides notes state and operations to the entire app
- * Replaces useNotes hook usage with Context API
  */
 export function NotesProvider({ children }) {
   const authContext = useContext(AuthContext);
   const token = authContext?.token;
   const currentUser = authContext?.currentUser;
   const userId = currentUser?.id;
+  
   const [notes, setNotes] = useState([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -38,32 +39,18 @@ export function NotesProvider({ children }) {
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
       const res = await fetch(`/api${path}`, {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
 
       if (res.status === 204) return null;
       let data = null;
-      try {
-        data = await res.json();
-      } catch (e) {
-        data = null;
-      }
+      try { data = await res.json(); } catch (e) { data = null; }
 
       if (res.status === 401) {
         window.dispatchEvent(new CustomEvent('auth-expired'));
-        const err = new Error(data?.error || "Session expired");
-        err.status = res.status;
-        err.isAuthError = true;
-        throw err;
       }
 
       if (!res.ok) {
@@ -73,26 +60,19 @@ export function NotesProvider({ children }) {
       }
       return data;
     } catch (error) {
-      if (error.name === 'AbortError') {
-        const err = new Error("Request timeout");
-        err.status = 408;
-        throw err;
-      }
       throw error;
     }
   }, []);
 
   // Cache helpers
-  const getCacheKey = useCallback(() => NOTES_CACHE_KEY + userId, [userId]);
-  const getArchivedCacheKey = useCallback(() => ARCHIVED_NOTES_CACHE_KEY + userId, [userId]);
+  const getCacheKey = useCallback(() => NOTES_CACHE_KEY + (userId || 'anon'), [userId]);
+  const getArchivedCacheKey = useCallback(() => ARCHIVED_NOTES_CACHE_KEY + (userId || 'anon'), [userId]);
 
   const persistNotesCache = useCallback((notesArray) => {
     try {
       localStorage.setItem(getCacheKey(), JSON.stringify(notesArray));
       localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
-    } catch (e) {
-      console.error("Error caching notes:", e);
-    }
+    } catch (e) { }
   }, [getCacheKey]);
 
   const invalidateNotesCache = useCallback(() => {
@@ -100,35 +80,21 @@ export function NotesProvider({ children }) {
       localStorage.removeItem(getCacheKey());
       localStorage.removeItem(getArchivedCacheKey());
       localStorage.removeItem(CACHE_TIMESTAMP_KEY);
-    } catch (e) {
-      console.error("Error invalidating cache:", e);
-    }
+    } catch (e) { }
   }, [getCacheKey, getArchivedCacheKey]);
 
   // Load notes
   const loadNotes = useCallback(async () => {
     if (!token) return;
     setNotesLoading(true);
-
     try {
       const data = await api("/notes", { token });
       const notesArray = Array.isArray(data) ? data : [];
       setNotes(sortNotesByRecency(notesArray));
       persistNotesCache(notesArray);
     } catch (error) {
-      console.error("Error loading notes:", error);
-      // Fallback to cache
-      try {
-        const cachedData = localStorage.getItem(getCacheKey());
-        if (cachedData) {
-          setNotes(sortNotesByRecency(JSON.parse(cachedData)));
-        } else {
-          setNotes([]);
-        }
-      } catch (cacheError) {
-        console.error("Error loading from cache:", cacheError);
-        setNotes([]);
-      }
+      const cached = localStorage.getItem(getCacheKey());
+      if (cached) setNotes(sortNotesByRecency(JSON.parse(cached)));
     } finally {
       setNotesLoading(false);
     }
@@ -138,118 +104,111 @@ export function NotesProvider({ children }) {
   const loadArchivedNotes = useCallback(async () => {
     if (!token) return;
     setNotesLoading(true);
-
-    let hasCachedData = false;
-    try {
-      const cachedData = localStorage.getItem(getArchivedCacheKey());
-      if (cachedData) {
-        setNotes(sortNotesByRecency(JSON.parse(cachedData)));
-        hasCachedData = true;
-      }
-    } catch (cacheError) {
-      console.error("Error loading archived notes from cache:", cacheError);
-    }
-
     try {
       const data = await api("/notes/archived", { token });
       const notesArray = Array.isArray(data) ? data : [];
       setNotes(sortNotesByRecency(notesArray));
-      
-      try {
-        localStorage.setItem(getArchivedCacheKey(), JSON.stringify(notesArray));
-      } catch (error) {
-        console.error("Error caching archived notes:", error);
-      }
+      localStorage.setItem(getArchivedCacheKey(), JSON.stringify(notesArray));
     } catch (error) {
-      console.error("Error loading archived notes:", error);
-      if (!hasCachedData) {
-        setNotes([]);
-      }
+      const cached = localStorage.getItem(getArchivedCacheKey());
+      if (cached) setNotes(sortNotesByRecency(JSON.parse(cached)));
     } finally {
       setNotesLoading(false);
     }
   }, [token, api, sortNotesByRecency, getArchivedCacheKey]);
 
-  // Archive/unarchive note
+  // SSE Collaboration
+  const { sseConnected, isOnline } = useCollaboration({
+    token,
+    tagFilter,
+    onNotesUpdated: loadNotes
+  });
+
+  // Note operations
   const toggleArchiveNote = useCallback(async (noteId, archived) => {
-    try {
-      await api(`/notes/${noteId}/archive`, { method: "POST", token, body: { archived } });
-      invalidateNotesCache();
-      
-      if (tagFilter === 'ARCHIVED') {
-        if (!archived) {
-          setTagFilter(null);
-          return await loadNotes();
-        } else {
-          return await loadArchivedNotes();
-        }
-      } else {
-        return await loadNotes();
-      }
-    } catch (e) {
-      throw e;
+    await api(`/notes/${noteId}/archive`, { method: "POST", token, body: { archived } });
+    invalidateNotesCache();
+    if (tagFilter === 'ARCHIVED') {
+      await loadArchivedNotes();
+    } else {
+      await loadNotes();
     }
   }, [token, api, tagFilter, invalidateNotesCache, loadNotes, loadArchivedNotes]);
 
-  // Delete note
   const deleteNote = useCallback(async (noteId) => {
-    try {
-      await api(`/notes/${noteId}`, { method: "DELETE", token });
-      setNotes(prev => prev.filter(n => String(n.id) !== String(noteId)));
-      invalidateNotesCache();
-    } catch (e) {
-      throw e;
-    }
+    await api(`/notes/${noteId}`, { method: "DELETE", token });
+    setNotes(prev => prev.filter(n => String(n.id) !== String(noteId)));
+    invalidateNotesCache();
   }, [token, api, invalidateNotesCache]);
 
-  // Reorder notes
-  const reorderNotes = useCallback(async (noteIds) => {
+  const createNote = useCallback(async (noteData) => {
+    const created = await api("/notes", { method: "POST", body: noteData, token });
+    setNotes((prev) => sortNotesByRecency([created, ...(Array.isArray(prev) ? prev : [])]));
+    invalidateNotesCache();
+    return created;
+  }, [token, api, sortNotesByRecency, invalidateNotesCache]);
+
+  const togglePin = useCallback(async (id, toPinned) => {
+    await api(`/notes/${id}`, { method: "PATCH", token, body: { pinned: !!toPinned } });
+    invalidateNotesCache();
+    setNotes((prev) => prev.map((n) => (String(n.id) === String(id) ? { ...n, pinned: !!toPinned } : n)));
+  }, [token, api, invalidateNotesCache]);
+
+  const updateChecklistItem = useCallback(async (noteId, itemId, checked) => {
+    // Find the note
+    const note = notes.find(n => String(n.id) === String(noteId));
+    if (!note) return;
+
+    // Optimistically update the note
+    const updatedItems = (note.items || []).map(item =>
+      item.id === itemId ? { ...item, done: checked } : item
+    );
+    const updatedNote = { ...note, items: updatedItems };
+
+    // Update local state optimistically
+    setNotes(prev => prev.map(n =>
+      String(n.id) === String(noteId) ? updatedNote : n
+    ));
+
     try {
-      await api("/notes/reorder", {
-        method: "POST",
+      // Update on server
+      await api(`/notes/${noteId}`, {
+        method: "PATCH",
         token,
-        body: { positions: noteIds.map((id, idx) => ({ id, position: noteIds.length - idx })) }
+        body: { items: updatedItems, type: "checklist", content: "" }
       });
+
+      // Invalidate caches since we modified the note
       invalidateNotesCache();
-    } catch (e) {
-      throw e;
+      invalidateArchivedNotesCache();
+    } catch (error) {
+      console.error("Failed to update checklist item:", error);
+      // Revert the optimistic update on error (simplified)
+      loadNotes().catch(() => {});
     }
+  }, [token, api, notes, loadNotes, invalidateNotesCache, invalidateArchivedNotesCache]);
+
+  const reorderNotes = useCallback(async (noteIds) => {
+    await api("/notes/reorder", {
+      method: "POST",
+      token,
+      body: { positions: noteIds.map((id, idx) => ({ id, position: noteIds.length - idx })) }
+    });
+    invalidateNotesCache();
   }, [token, api, invalidateNotesCache]);
 
   const value = {
-    notes,
-    setNotes,
-    notesLoading,
-    search,
-    setSearch,
-    tagFilter,
-    setTagFilter,
-    loadNotes,
-    loadArchivedNotes,
-    toggleArchiveNote,
-    deleteNote,
-    reorderNotes,
-    invalidateNotesCache,
-    persistNotesCache,
-    sortNotesByRecency,
+    notes, setNotes, notesLoading, search, setSearch, tagFilter, setTagFilter,
+    loadNotes, loadArchivedNotes, toggleArchiveNote, deleteNote, createNote, 
+    updateChecklistItem, togglePin, reorderNotes,
+    invalidateNotesCache, sseConnected, isOnline
   };
 
-  return (
-    <NotesContext.Provider value={value}>
-      {children}
-    </NotesContext.Provider>
-  );
+  return <NotesContext.Provider value={value}>{children}</NotesContext.Provider>;
 }
 
-/**
- * useNotes Hook
- * Convenience hook to access notes context
- * Replaces the original useNotes hook
- */
 export function useNotes() {
-  const context = React.useContext(NotesContext);
-  if (!context) {
-    throw new Error('useNotes must be used within NotesProvider');
-  }
+  const context = useContext(NotesContext);
+  if (!context) throw new Error('useNotes must be used within NotesProvider');
   return context;
 }

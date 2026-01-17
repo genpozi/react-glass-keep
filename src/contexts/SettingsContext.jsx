@@ -68,6 +68,13 @@ export function SettingsProvider({ children }) {
     }
   });
 
+  // Main content layout (Grid vs List)
+  const [listView, setListView] = useState(() => {
+    try {
+      return localStorage.getItem("glass_keep_list_view") === "true";
+    } catch (e) { return false; }
+  });
+
   // Initialize dark mode on mount
   useEffect(() => {
     const savedDark =
@@ -121,6 +128,11 @@ export function SettingsProvider({ children }) {
     localStorage.setItem("sidebarWidth", sidebarWidth);
   }, [sidebarWidth]);
 
+  // Persist list view preference
+  useEffect(() => {
+    localStorage.setItem("glass_keep_list_view", listView);
+  }, [listView]);
+
   // Persist local AI setting
   useEffect(() => {
     localStorage.setItem("localAiEnabled", localAiEnabled);
@@ -159,6 +171,11 @@ export function SettingsProvider({ children }) {
     setAlwaysShowSidebarOnWide,
     sidebarWidth,
     setSidebarWidth,
+
+    // View Mode
+    listView,
+    setListView,
+    toggleListView: () => setListView(v => !v),
 
     // Local AI
     localAiEnabled,

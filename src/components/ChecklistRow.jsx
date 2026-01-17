@@ -9,6 +9,13 @@ export function ChecklistRow({
   disableToggle = false,
   showRemove = false,
   size = "md", // "sm" | "md" | "lg"
+  draggable = false,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  isDragging = false,
 }) {
   const boxSize =
     size === "lg"
@@ -29,7 +36,22 @@ export function ChecklistRow({
     : "opacity-0 group-hover:opacity-100";
 
   return (
-    <div className="flex items-start gap-3 md:gap-2 group">
+    <div
+      className={`flex items-start gap-3 md:gap-2 group ${isDragging ? "opacity-40" : ""}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+    >
+      {draggable && !readOnly && (
+        <div className="mt-1 cursor-grab opacity-30 group-hover:opacity-100 transition-opacity">
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+          </svg>
+        </div>
+      )}
       <input
         type="checkbox"
         className={`mt-0.5 ${boxSize} cursor-pointer`}

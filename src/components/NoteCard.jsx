@@ -2,6 +2,12 @@ import React, { useMemo } from 'react';
 import { PinFilled, PinOutline } from './Icons';
 import { DrawingPreview } from './DrawingPreview';
 import { ChecklistRow } from './ChecklistRow';
+import { useModal } from '../contexts/ModalContext';
+import { useNotes } from '../contexts/NotesContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
+import { useUI } from '../contexts/UIContext';
+import { bgFor } from '../utils/helpers';
 
 /**
  * mdToPlain - Convert markdown to plain text (imported from App.jsx helpers)
@@ -31,9 +37,6 @@ const mdToPlain = (md) => {
  */
 export function NoteCard({
   n,
-  dark,
-  openModal,
-  togglePin,
   multiMode = false,
   selected = false,
   onToggleSelect = () => {},
@@ -43,12 +46,12 @@ export function NoteCard({
   onDragLeave,
   onDrop,
   onDragEnd,
-  isOnline = true,
-  onUpdateChecklistItem,
-  currentUser,
-  globalTransparency = DEFAULT_TRANSPARENCY,
-  bgFor, // Should be passed from parent
 }) {
+  const { openNote } = useModal();
+  const { togglePin, updateChecklistItem } = useNotes();
+  const { currentUser } = useAuth();
+  const { dark, transparency: globalTransparency } = useSettings();
+  const { isOnline } = useUI();
   const isChecklist = n.type === 'checklist';
   const isDraw = n.type === 'draw';
   const previewText = useMemo(() => mdToPlain(n.content || ''), [n.content]);
@@ -98,7 +101,7 @@ export function NoteCard({
           e.stopPropagation();
           onToggleSelect?.(n.id, !selected);
         } else {
-          openModal(n.id);
+          openNote(n);
         }
       }}
       className={`note-card glass-card rounded-xl p-4 mb-6 cursor-pointer transform hover:scale-[1.02] transition-transform duration-200 relative min-h-[54px] group ${
@@ -204,7 +207,7 @@ export function NoteCard({
               showRemove={false}
               onToggle={async (checked, e) => {
                 e?.stopPropagation();
-                await onUpdateChecklistItem?.(n.id, it.id, checked);
+                await updateChecklistItem(n.id, it.id, checked);
               }}
             />
           ))}

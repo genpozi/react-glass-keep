@@ -1,102 +1,187 @@
-import React, { createContext, useState, useCallback } from 'react';
+import React, { createContext, useState, useCallback, useContext, useRef } from 'react';
+import { NotesContext } from './NotesContext';
+import { uid, runFormat, fileToCompressedDataURL, handleSmartEnter } from '../utils/helpers';
 
 export const ComposerContext = createContext();
 
 /**
  * ComposerProvider Component
- * Manages the state of the note composer (for creating/editing notes)
+ * Manages the state of the note composer for creating new notes
  */
 export function ComposerProvider({ children }) {
+  const { createNote, isOnline } = useContext(NotesContext);
+
+  // Core state
+  const [type, setType] = useState("text"); // 'text' | 'checklist' | 'draw'
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [type, setType] = useState("text"); // 'text' | 'checklist' | 'draw'
+  const [tags, setTags] = useState(""); // Comma-separated string as in App.jsx
   const [color, setColor] = useState("default");
-  const [items, setItems] = useState([]); // for checklist type
   const [images, setImages] = useState([]);
-  const [tags, setTags] = useState([]);
   const [collapsed, setCollapsed] = useState(true);
-  const [isDrawing, setIsDrawing] = useState(false);
+  
+  // Checklist state
+  const [clItems, setClItems] = useState([]);
+  const [clInput, setClInput] = useState("");
+
+  // Drawing state
+  const [drawingData, setDrawingData] = useState({ paths: [], dimensions: null });
+
+  // UI state
+  const [showFormatting, setShowFormatting] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+
+  // Refs
+  const titleRef = useRef(null);
+  const contentRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const fmtBtnRef = useRef(null);
+  const colorBtnRef = useRef(null);
 
   const reset = useCallback(() => {
     setTitle("");
     setContent("");
-    setType("text");
-    setColor("default");
-    setItems([]);
+    setTags("");
     setImages([]);
-    setTags([]);
+    setColor("default");
+    setClItems([]);
+    setClInput("");
+    setDrawingData({ paths: [], dimensions: null });
+    setType("text");
     setCollapsed(true);
-    setIsDrawing(false);
+    setShowFormatting(false);
+    setShowColorPicker(false);
+    if (contentRef.current) contentRef.current.style.height = "auto";
   }, []);
 
-  const addItem = useCallback((text) => {
+  const addChecklistItem = useCallback(() => {
+    if (!clInput.trim()) return;
     const newItem = {
-      id: Date.now(),
-      text,
+      id: uid(),
+      text: clInput.trim(),
       done: false,
     };
-    setItems(prev => [...prev, newItem]);
-    return newItem.id;
-  }, []);
+    setClItems(prev => [...prev, newItem]);
+    setClInput("");
+  }, [clInput]);
 
-  const updateItem = useCallback((id, updates) => {
-    setItems(prev => prev.map(item =>
-      item.id === id ? { ...item, ...updates } : item
-    ));
-  }, []);
+  const save = useCallback(async () => {
+    if (!isOnline) return;
 
-  const removeItem = useCallback((id) => {
-    setItems(prev => prev.filter(item => item.id !== id));
-  }, []);
+    const isText = type === "text";
+    const isChecklist = type === "checklist";
+    const isDraw = type === "draw";
 
-  const addImage = useCallback((imageData) => {
-    const newImage = {
-      id: Date.now(),
-      ...imageData,
+    // Validation
+    if (isText) {
+      if (!title.trim() && !content.trim() && !tags.trim() && images.length === 0) return;
+    } else if (isChecklist) {
+      if (!title.trim() && clItems.length === 0) return;
+    } else if (isDraw) {
+      const drawPaths = Array.isArray(drawingData) ? drawingData : (drawingData?.paths || []);
+      if (!title.trim() && drawPaths.length === 0) return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const newNote = {
+      id: uid(),
+      type: type,
+      title: title.trim(),
+      content: isText ? content : isDraw ? JSON.stringify(drawingData) : "",
+      items: isChecklist ? clItems : [],
+      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      images: images,
+      color: color,
+      pinned: false,
+      position: Date.now(),
+      timestamp: nowIso,
+      updated_at: nowIso,
     };
-    setImages(prev => [...prev, newImage]);
-    return newImage.id;
-  }, []);
+
+    try {
+      await createNote(newNote);
+      reset();
+    } catch (e) {
+      alert(e.message || "Failed to add note");
+    }
+  }, [isOnline, type, title, content, tags, images, clItems, drawingData, color, createNote, reset]);
+
+  const onKeyDown = useCallback((e) => {
+    // Ctrl+Enter or Cmd+Enter to save
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      save();
+      return;
+    }
+
+    // Smart Enter
+    if (e.key !== "Enter" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    const el = contentRef.current;
+    if (!el) return;
+    const value = content;
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? value.length;
+    const res = handleSmartEnter(value, start, end);
+    if (res) {
+      e.preventDefault();
+      setContent(res.text);
+      requestAnimationFrame(() => {
+        try { el.setSelectionRange(res.range[0], res.range[1]); } catch (e) { }
+        el.style.height = "auto";
+        el.style.height = el.scrollHeight + "px";
+      });
+    }
+  }, [content, setContent, save]);
+
+  const format = useCallback((t) => {
+    runFormat(() => content, setContent, contentRef, t);
+  }, [content, setContent]);
+
+  const handleImageUpload = useCallback(async (files) => {
+    const results = [];
+    for (const f of files) {
+      try {
+        const src = await fileToCompressedDataURL(f);
+        results.push({ id: uid(), src, name: f.name });
+      } catch (e) { }
+    }
+    if (results.length) setImages((prev) => [...prev, ...results]);
+  }, [setImages]);
 
   const removeImage = useCallback((id) => {
-    setImages(prev => prev.filter(img => img.id === id));
-  }, []);
-
-  const addTag = useCallback((tag) => {
-    setTags(prev => [...new Set([...prev, tag])]);
-  }, []);
-
-  const removeTag = useCallback((tag) => {
-    setTags(prev => prev.filter(t => t !== tag));
-  }, []);
+    setImages((prev) => prev.filter((im) => im.id !== id));
+  }, [setImages]);
 
   const value = {
-    title,
-    setTitle,
-    content,
-    setContent,
-    type,
-    setType,
-    color,
-    setColor,
-    items,
-    setItems,
-    images,
-    setImages,
-    tags,
-    setTags,
-    collapsed,
-    setCollapsed,
-    isDrawing,
-    setIsDrawing,
+    // State
+    type, setType,
+    title, setTitle,
+    content, setContent,
+    tags, setTags,
+    color, setColor,
+    images, setImages,
+    collapsed, setCollapsed,
+    clItems, setClItems,
+    clInput, setClInput,
+    drawingData, setDrawingData,
+    showFormatting, setShowFormatting,
+    showColorPicker, setShowColorPicker,
+
+    // Refs
+    titleRef,
+    contentRef,
+    fileInputRef,
+    fmtBtnRef,
+    colorBtnRef,
+
+    // Actions
     reset,
-    addItem,
-    updateItem,
-    removeItem,
-    addImage,
+    addChecklistItem,
+    onKeyDown,
+    format,
+    handleImageUpload,
     removeImage,
-    addTag,
-    removeTag,
+    save
   };
 
   return (
@@ -106,12 +191,8 @@ export function ComposerProvider({ children }) {
   );
 }
 
-/**
- * useComposer Hook
- * Convenience hook to access composer context
- */
 export function useComposer() {
-  const context = React.useContext(ComposerContext);
+  const context = useContext(ComposerContext);
   if (!context) {
     throw new Error('useComposer must be used within ComposerProvider');
   }

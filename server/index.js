@@ -1091,6 +1091,7 @@ app.patch("/api/admin/settings", auth, adminOnly, (req, res) => {
 
 // Check if new account creation is allowed (public endpoint)
 app.get("/api/admin/allow-registration", (_req, res) => {
+  console.log("Serving /api/admin/allow-registration, content:", adminSettings);
   res.json({ allowNewAccounts: adminSettings.allowNewAccounts });
 });
 
@@ -1365,6 +1366,13 @@ ${question}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 
 // ---------- Health ----------
 app.get("/api/health", (_req, res) => res.json({ ok: true, env: NODE_ENV }));
+
+// ---------- Error Handling ----------
+app.use((err, req, res, next) => {
+  console.error("🔥 Server Error:", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: "Internal Server Error", message: err.message });
+});
 
 // ---------- Static (production) ----------
 if (NODE_ENV === "production") {
