@@ -2,5 +2,9 @@
   "name": "glass-keep-api",
   "private": true,
   "type": "commonjs",
-  "main": "index.js"
+  "main": "index.js",
+  "dependencies": {
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0"
+  }
 }

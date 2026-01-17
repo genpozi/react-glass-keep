@@ -2,5 +2,90 @@
 
 @import "tailwindcss";
 
-/* If you toggle dark mode by adding `.dark` to <html>, define this variant in v4 */
+@theme {
+  --color-glass-border: rgba(255, 255, 255, 0.08);
+  --color-glass-surface: rgba(255, 255, 255, 0.03);
+  --color-glass-highlight: rgba(255, 255, 255, 0.05);
+
+  /* Define accent color that uses the CSS variable */
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+}
+
+:root {
+  color-scheme: dark;
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-surface: rgba(20, 20, 20, 0.6);
+  --glass-surface-hover: rgba(30, 30, 30, 0.7);
+  --neon-accent: #646cff;
+
+  /* Default Accent (Indigo-600) */
+  --color-accent: #6366F1;
+  /* Default Accent Hover (Indigo-700) */
+  --color-accent-hover: #4F46E5;
+  /* Accent glow for box-shadows */
+  --color-accent-glow: rgba(99, 102, 241, 0.15);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  /* Deep space gradient background */
+  background: 
+    radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.15), transparent 25%), 
+    radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.1), transparent 25%),
+    linear-gradient(to bottom, #0f0c29, #302b63, #24243e);
+  background-attachment: fixed;
+  color: #e5e7eb;
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.dark body {
+    /* Ensure dark mode background persists */
+    background: 
+    radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.2), transparent 40%), 
+    radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.15), transparent 40%),
+    linear-gradient(to bottom, #050505, #121212, #0a0a0a);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Utility class for Glassmorphism */
+.glass-panel {
+  background: rgba(20, 20, 25, 0.4);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.glass-card {
+    background: rgba(30, 30, 35, 0.3);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+
+.glass-card:hover {
+    background: rgba(40, 40, 45, 0.4);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+}
 

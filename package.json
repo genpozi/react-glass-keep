@@ -1,7 +1,7 @@
 {
   "name": "liquid-keep",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -18,10 +18,12 @@
     "@huggingface/transformers": "^3.8.1",
     "@tailwindcss/vite": "^4.1.11",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^12.6.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.2.1",
     "framer-motion": "^12.23.12",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.539.0",
     "marked": "^16.1.2",

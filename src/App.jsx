@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState, useLayoutEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import DashboardLayout from "./components/DashboardLayout";
 import { askAI } from "./ai";
 import { marked as markedParser } from "marked";
 import DrawingCanvas from "./DrawingCanvas";
+import { BACKGROUNDS } from "./backgrounds";
+import { ACCENT_COLORS, THEME_PRESETS } from "./themes";
+import { useAuth, useNotes, useSettings } from "./hooks";
 
 // Ensure we can call marked.parse(...)
 const marked =
@@ -99,6 +103,16 @@ async function api(path, { method = "GET", body, token } = {}) {
   }
 }
 
+/** ---------- Transparency Presets ---------- */
+const TRANSPARENCY_PRESETS = [
+  { id: 'solid', name: 'Solid', opacity: 0.95 },
+  { id: 'subtle', name: 'Subtle Glass', opacity: 0.8 },
+  { id: 'medium', name: 'Medium Glass', opacity: 0.6 },
+  { id: 'frosted', name: 'Frosted', opacity: 0.4 },
+  { id: 'airy', name: 'Airy', opacity: 0.25 },
+];
+const DEFAULT_TRANSPARENCY = 'medium'; // 0.6 opacity
+
 /** ---------- Colors ---------- */
 /* Added 6 pastel boho colors + two-line picker layout via grid-cols-6 */
 const LIGHT_COLORS = {
@@ -145,10 +159,28 @@ const COLOR_ORDER = [
   "sand",
   "mauve",
 ];
-const solid = (rgba) => (typeof rgba === "string" ? rgba.replace("0.6", "1") : rgba);
-const bgFor = (colorKey, dark) =>
-  (dark ? DARK_COLORS : LIGHT_COLORS)[colorKey] ||
-  (dark ? DARK_COLORS.default : LIGHT_COLORS.default);
+const solid = (rgba) => (typeof rgba === "string" ? rgba.replace(/0\.[0-9]+\)$/, "1)") : rgba);
+
+// Get opacity value from transparency preset ID
+const getOpacity = (transparencyId) => {
+  const preset = TRANSPARENCY_PRESETS.find(p => p.id === transparencyId);
+  return preset ? preset.opacity : 0.6; // default to medium
+};
+
+// Apply custom opacity to a color string
+const applyOpacity = (rgbaStr, opacity) => {
+  if (!rgbaStr || typeof rgbaStr !== 'string') return rgbaStr;
+  return rgbaStr.replace(/[0-9.]+\)$/, `${opacity})`);
+};
+
+const bgFor = (colorKey, dark, transparency = null, globalTransparency = DEFAULT_TRANSPARENCY) => {
+  const base = (dark ? DARK_COLORS : LIGHT_COLORS)[colorKey] ||
+    (dark ? DARK_COLORS.default : LIGHT_COLORS.default);
+  // Use card-specific transparency if set, otherwise use global
+  const effectiveTransparency = transparency || globalTransparency;
+  const opacity = getOpacity(effectiveTransparency);
+  return applyOpacity(base, opacity);
+};
 
 /** ---------- Modal light boost ---------- */
 const parseRGBA = (str) => {
@@ -754,7 +786,7 @@ const ColorDot = ({ name, selected, onClick, darkMode }) => (
     type="button"
     onClick={onClick}
     title={name}
-    className={`w-6 h-6 rounded-full border-2 border-transparent focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 ${name === "default" ? "flex items-center justify-center" : ""} ${selected ? "ring-2 ring-indigo-500" : ""}`}
+    className={`w-6 h-6 rounded-full border-2 border-transparent focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 ${name === "default" ? "flex items-center justify-center" : ""} ${selected ? "ring-2 ring-accent" : ""}`}
     style={{
       backgroundColor: name === "default" ? "transparent" : solid(bgFor(name, darkMode)),
       borderColor: name === "default" ? "#d1d5db" : "transparent",
@@ -1156,6 +1188,8 @@ function NoteCard({
   // checklist update callback
   onUpdateChecklistItem,
   currentUser,
+  // transparency
+  globalTransparency = DEFAULT_TRANSPARENCY,
 }) {
 
   const isChecklist = n.type === "checklist";
@@ -1203,9 +1237,9 @@ function NoteCard({
           openModal(n.id);
         }
       }}
-      className={`note-card glass-card rounded-xl p-4 mb-6 cursor-pointer transform hover:scale-[1.02] transition-transform duration-200 relative min-h-[54px] group ${multiMode && selected ? 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-transparent' : ''
+      className={`note-card glass-card rounded-xl p-4 mb-6 cursor-pointer transform hover:scale-[1.02] transition-transform duration-200 relative min-h-[54px] group ${multiMode && selected ? 'ring-2 ring-accent ring-offset-2 ring-offset-transparent' : ''
         }`}
-      style={{ backgroundColor: bgFor(n.color, dark) }}
+      style={{ backgroundColor: bgFor(n.color, dark, n.transparency, globalTransparency) }}
       data-id={n.id}
       data-group={group}
     >
@@ -1214,8 +1248,8 @@ function NoteCard({
           {/* Modern checkbox */}
           <div
             className={`w-6 h-6 rounded-md border-2 flex items-center justify-center cursor-pointer transition-all ${selected
-              ? 'bg-indigo-500 border-indigo-500 text-white'
-              : 'border-gray-300 dark:border-gray-500 bg-white/80 dark:bg-gray-700/80 hover:border-indigo-400'
+              ? 'bg-accent border-accent text-white'
+              : 'border-gray-300 dark:border-gray-500 bg-white/80 dark:bg-gray-700/80 hover:border-accent'
               }`}
             onClick={(e) => {
               e.stopPropagation();
@@ -1251,12 +1285,12 @@ function NoteCard({
         <div className="absolute top-3 right-3 h-8 opacity-0 group-hover:opacity-100 transition-opacity">
           <div
             className="absolute inset-0 rounded-full"
-            style={{ backgroundColor: bgFor(n.color, dark) }}
+            style={{ backgroundColor: bgFor(n.color, dark, n.transparency, globalTransparency) }}
           />
           <button
             aria-label={n.pinned ? "Unpin note" : "Pin note"}
             onClick={(e) => { if (disablePin) return; e.stopPropagation(); togglePin(n.id, !n.pinned); }}
-            className="relative rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="relative rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-accent"
             title={n.pinned ? "Unpin" : "Pin"}
             disabled={!!disablePin}
           >
@@ -1373,7 +1407,7 @@ function LoginView({ dark, onToggleDark, onLogin, goRegister, goSecret, allowReg
         <input
           type="text"
           autoComplete="username"
-          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           placeholder="Username"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -1381,25 +1415,25 @@ function LoginView({ dark, onToggleDark, onLogin, goRegister, goSecret, allowReg
         />
         <input
           type="password"
-          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           placeholder="Password"
           value={pw}
           onChange={(e) => setPw(e.target.value)}
           required
         />
         {err && <p className="text-red-600 text-sm">{err}</p>}
-        <button type="submit" className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+        <button type="submit" className="w-full px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover">
           Sign In
         </button>
       </form>
 
       <div className="mt-4 text-sm flex justify-between items-center">
         {allowRegistration && (
-          <button className="text-indigo-600 hover:underline" onClick={goRegister}>
+          <button className="text-accent hover:underline" onClick={goRegister}>
             Create account
           </button>
         )}
-        <button className="text-indigo-600 hover:underline" onClick={goSecret}>
+        <button className="text-accent hover:underline" onClick={goSecret}>
           Forgot username/password?
         </button>
       </div>
@@ -1431,7 +1465,7 @@ function RegisterView({ dark, onToggleDark, onRegister, goLogin }) {
       <form onSubmit={handleSubmit} className="space-y-4">
         <input
           type="text"
-          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -1439,7 +1473,7 @@ function RegisterView({ dark, onToggleDark, onRegister, goLogin }) {
         <input
           type="text"
           autoComplete="username"
-          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           placeholder="Username"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -1447,7 +1481,7 @@ function RegisterView({ dark, onToggleDark, onRegister, goLogin }) {
         />
         <input
           type="password"
-          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           placeholder="Password (min 6 chars)"
           value={pw}
           onChange={(e) => setPw(e.target.value)}
@@ -1455,20 +1489,20 @@ function RegisterView({ dark, onToggleDark, onRegister, goLogin }) {
         />
         <input
           type="password"
-          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           placeholder="Confirm password"
           value={pw2}
           onChange={(e) => setPw2(e.target.value)}
           required
         />
         {err && <p className="text-red-600 text-sm">{err}</p>}
-        <button type="submit" className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+        <button type="submit" className="w-full px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover">
           Create Account
         </button>
       </form>
       <div className="mt-4 text-sm text-center">
         Already have an account?{" "}
-        <button className="text-indigo-600 hover:underline" onClick={goLogin}>
+        <button className="text-accent hover:underline" onClick={goLogin}>
           Sign in
         </button>
       </div>
@@ -1494,20 +1528,20 @@ function SecretLoginView({ dark, onToggleDark, onLoginWithKey, goLogin }) {
     <AuthShell title="Sign in with Secret Key" dark={dark} onToggleDark={onToggleDark}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <textarea
-          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[100px] text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          className="w-full bg-transparent border border-[var(--border-light)] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent min-h-[100px] text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           placeholder="Paste your secret key here"
           value={key}
           onChange={(e) => setKey(e.target.value)}
           required
         />
         {err && <p className="text-red-600 text-sm">{err}</p>}
-        <button type="submit" className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+        <button type="submit" className="w-full px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover">
           Sign In with Secret Key
         </button>
       </form>
       <div className="mt-4 text-sm text-center">
         Remember your credentials?{" "}
-        <button className="text-indigo-600 hover:underline" onClick={goLogin}>
+        <button className="text-accent hover:underline" onClick={goLogin}>
           Sign in with email & password
         </button>
       </div>
@@ -1598,7 +1632,7 @@ function TagSidebar({ open, onClose, tagsWithCounts, activeTag, onSelect, dark, 
         {/* Resize handle - only show when permanent */}
         {permanent && (
           <div
-            className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-indigo-500/50 active:bg-indigo-500 transition-colors"
+            className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-accent/50 active:bg-accent transition-colors"
             onMouseDown={(e) => {
               e.preventDefault();
               const startX = e.clientX;
@@ -1629,9 +1663,10 @@ function TagSidebar({ open, onClose, tagsWithCounts, activeTag, onSelect, dark, 
 }
 
 /** ---------- Settings Panel ---------- */
-function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImportGKeep, onImportMd, onDownloadSecretKey, alwaysShowSidebarOnWide, setAlwaysShowSidebarOnWide, localAiEnabled, setLocalAiEnabled, showGenericConfirm, showToast }) {
+function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImportGKeep, onImportMd, onDownloadSecretKey, alwaysShowSidebarOnWide, setAlwaysShowSidebarOnWide, localAiEnabled, setLocalAiEnabled, showGenericConfirm, showToast, inline, backgroundImage, setBackgroundImage, backgroundOverlay, setBackgroundOverlay, accentColor, setAccentColor, cardTransparency, setCardTransparency }) {
   // Prevent body scroll when settings panel is open
   React.useEffect(() => {
+    if (inline) return;
     if (open) {
       document.body.style.overflow = 'hidden';
     } else {
@@ -1641,21 +1676,22 @@ function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImport
     return () => {
       document.body.style.overflow = '';
     };
-  }, [open]);
+  }, [open, inline]);
 
   return (
     <>
-      {open && (
+      {open && !inline && (
         <div
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
           onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         />
       )}
       <div
-        className={`fixed top-0 right-0 z-50 h-full w-full sm:w-96 shadow-2xl transition-transform duration-200 ${open ? "translate-x-0" : "translate-x-full"}`}
-        style={{ backgroundColor: dark ? "#222222" : "rgba(255,255,255,0.95)", borderLeft: "1px solid var(--border-light)" }}
-        aria-hidden={!open}
+        className={inline ? "w-full h-full" : `fixed top-0 right-0 z-50 h-full w-full sm:w-96 shadow-2xl transition-transform duration-200 ${open ? "translate-x-0" : "translate-x-full"}`}
+        style={inline ? {} : { backgroundColor: dark ? "#222222" : "rgba(255,255,255,0.95)", borderLeft: "1px solid var(--border-light)" }}
+        aria-hidden={!open && !inline}
       >
+        {!inline && (
         <div className="p-4 flex items-center justify-between border-b border-[var(--border-light)]">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <SettingsIcon />
@@ -1669,8 +1705,11 @@ function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImport
             <CloseIcon />
           </button>
         </div>
+        )}
 
-        <div className="p-4 overflow-y-auto h-[calc(100%-64px)]">
+        <div className={inline ? "max-w-4xl mx-auto space-y-6 p-6" : "p-4 overflow-y-auto h-[calc(100%-64px)]"}>
+          {/* Section Headers for Inline Mode */}
+          {inline && <h2 className="text-2xl font-bold mb-6 text-white border-b border-gray-700 pb-4">Settings</h2>}
           {/* Data Management Section */}
           <div className="mb-8">
             <h4 className="text-md font-semibold mb-4">Data Management</h4>
@@ -1717,6 +1756,186 @@ function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImport
             </div>
           </div>
 
+          {/* Appearance Section */}
+          <div className="mb-8">
+            <h4 className="text-md font-semibold mb-4">Appearance</h4>
+            <div className="space-y-6">
+
+              {/* Theme Presets */}
+              <div>
+                <div className="font-medium mb-3">Theme Presets</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {THEME_PRESETS.map((preset) => (
+                     <button
+                        key={preset.id}
+                        onClick={() => {
+                           // Apply all three theme properties at once
+                           setBackgroundImage(preset.backgroundId);
+                           setAccentColor(preset.accentId);
+                           setBackgroundOverlay(preset.overlay);
+                        }}
+                        className="group relative h-24 rounded-lg overflow-hidden border border-[var(--border-light)] hover:border-accent transition-all hover:scale-[1.02] text-left"
+                     >
+                        {/* Preview Background */}
+                        <div className="absolute inset-0 flex">
+                           {preset.backgroundId ? (
+                             <img 
+                               src={BACKGROUNDS.find(b => b.id === preset.backgroundId)?.paths.thumb} 
+                               className="w-full h-full object-cover opacity-70 group-hover:opacity-90 transition-opacity" 
+                               alt={preset.name}
+                             />
+                           ) : (
+                             <div className="w-full h-full bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e]" />
+                           )}
+                           {/* Overlay simulation */}
+                           {preset.overlay && <div className="absolute inset-0 bg-black/20" />}
+                        </div>
+                        
+                        {/* Content */}
+                        <div className="absolute inset-0 p-3 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent">
+                           <div className="text-sm font-bold text-white shadow-sm flex items-center gap-2">
+                              <span 
+                                className="w-2.5 h-2.5 rounded-full shadow-[0_0_5px_currentColor]" 
+                                style={{ backgroundColor: ACCENT_COLORS.find(c => c.id === preset.accentId)?.hex, color: ACCENT_COLORS.find(c => c.id === preset.accentId)?.hex }} 
+                              />
+                              {preset.name} 
+                           </div>
+                        </div>
+                        
+                        {/* Active Indicator (if current state roughly matches preset) */}
+                        {backgroundImage === preset.backgroundId && accentColor === preset.accentId && (
+                           <div className="absolute top-2 right-2 bg-accent text-white rounded-full p-0.5 shadow-lg">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                           </div>
+                        )}
+                     </button>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Accent Color Picker */}
+              <div>
+                <div className="font-medium mb-3">Accent Color</div>
+                <div className="flex flex-wrap gap-3">
+                  {ACCENT_COLORS.map((color) => (
+                    <button
+                      key={color.id}
+                      onClick={() => setAccentColor(color.id)}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                        accentColor === color.id 
+                          ? 'ring-2 ring-offset-2 ring-offset-black/20 ring-white transform scale-110' 
+                          : 'hover:scale-105 opacity-80 hover:opacity-100'
+                      }`}
+                      style={{ backgroundColor: color.hex }}
+                      title={color.name}
+                    >
+                      {accentColor === color.id && (
+                        <svg className="w-5 h-5 text-white drop-shadow-md" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card Transparency Picker */}
+              <div>
+                <div className="font-medium mb-3">Card Transparency</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">Default transparency for note cards. Individual cards can override this.</div>
+                <div className="flex flex-wrap gap-2">
+                  {TRANSPARENCY_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      onClick={() => setCardTransparency(preset.id)}
+                      className={`px-3 py-2 rounded-lg border transition-all text-sm ${
+                        cardTransparency === preset.id
+                          ? 'border-accent bg-accent/20 text-accent font-medium'
+                          : 'border-[var(--border-light)] hover:border-gray-400 dark:hover:border-gray-500'
+                      }`}
+                      title={`${Math.round(preset.opacity * 100)}% opacity`}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                    <div className="font-medium">Workspace Background</div>
+                    {backgroundImage && (
+                       <label className="flex items-center gap-2 cursor-pointer">
+                         <span className="text-xs text-gray-500">Overlay Theme</span>
+                         <button
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${backgroundOverlay
+                            ? 'bg-accent'
+                            : 'bg-gray-300 dark:bg-gray-600'
+                            }`}
+                          onClick={() => setBackgroundOverlay(!backgroundOverlay)}
+                        >
+                          <span
+                            className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${backgroundOverlay ? 'translate-x-5' : 'translate-x-1'
+                              }`}
+                          />
+                        </button>
+                       </label>
+                    )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-96 overflow-y-auto p-1 custom-scrollbar">
+                  {/* Default / None Option */}
+                  <button
+                    onClick={() => setBackgroundImage(null)}
+                    className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all ${
+                      !backgroundImage 
+                        ? 'border-accent ring-2 ring-accent/50' 
+                        : 'border-[var(--border-light)] hover:border-gray-400'
+                    }`}
+                  >
+                    <div className="w-full h-full bg-gradient-to-br from-[#0f0c29] via-[#302b63] to-[#24243e] flex items-center justify-center text-xs text-white font-medium">
+                      Default
+                    </div>
+                    {!backgroundImage && (
+                       <div className="absolute top-2 right-2 bg-accent rounded-full p-0.5">
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                       </div>
+                    )}
+                  </button>
+                  
+                  {/* Wallpaper Options */}
+                  {BACKGROUNDS.map((bg) => (
+                    <button
+                      key={bg.id}
+                      onClick={() => setBackgroundImage(bg.id)}
+                      className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all group ${
+                        backgroundImage === bg.id 
+                          ? 'border-accent ring-2 ring-accent/50' 
+                          : 'border-[var(--border-light)] hover:border-gray-400'
+                      }`}
+                      title={bg.name}
+                    >
+                      <img 
+                        src={bg.paths.thumb} 
+                        alt={bg.name} 
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-x-0 bottom-0 bg-black/60 backdrop-blur-sm py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="text-[10px] text-white truncate text-center">{bg.name}</div>
+                      </div>
+                      
+                      {backgroundImage === bg.id && (
+                       <div className="absolute top-2 right-2 bg-accent rounded-full p-0.5 shadow-md">
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                       </div>
+                    )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* UI Preferences Section */}
           <div className="mb-8">
             <h4 className="text-md font-semibold mb-4">UI Preferences</h4>
@@ -1728,7 +1947,7 @@ function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImport
                 </div>
                 <button
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${localAiEnabled
-                    ? 'bg-indigo-600'
+                    ? 'bg-accent'
                     : 'bg-gray-300 dark:bg-gray-600'
                     }`}
                   onClick={() => {
@@ -1766,7 +1985,7 @@ function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImport
                 </div>
                 <button
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${alwaysShowSidebarOnWide
-                    ? 'bg-indigo-600'
+                    ? 'bg-accent'
                     : 'bg-gray-300 dark:bg-gray-600'
                     }`}
                   onClick={() => setAlwaysShowSidebarOnWide(!alwaysShowSidebarOnWide)}
@@ -1786,7 +2005,7 @@ function SettingsPanel({ open, onClose, dark, onExportAll, onImportAll, onImport
 }
 
 /** ---------- Admin Panel ---------- */
-function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm, setNewUserForm, updateAdminSettings, createUser, deleteUser, updateUser, currentUser, showGenericConfirm, showToast }) {
+function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm, setNewUserForm, updateAdminSettings, createUser, deleteUser, updateUser, currentUser, showGenericConfirm, showToast, inline }) {
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [editUserModalOpen, setEditUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
@@ -1864,6 +2083,7 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
 
   // Prevent body scroll when admin panel is open
   React.useEffect(() => {
+    if (inline) return;
     if (open) {
       document.body.style.overflow = 'hidden';
     } else {
@@ -1877,17 +2097,18 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
 
   return (
     <>
-      {open && (
+      {open && !inline && (
         <div
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
           onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         />
       )}
       <div
-        className={`fixed top-0 right-0 z-50 h-full w-full sm:w-96 shadow-2xl transition-transform duration-200 ${open ? "translate-x-0" : "translate-x-full"}`}
-        style={{ backgroundColor: dark ? "rgba(40,40,40,0.95)" : "rgba(255,255,255,0.95)", borderLeft: "1px solid var(--border-light)" }}
-        aria-hidden={!open}
+        className={inline ? "w-full h-full" : `fixed top-0 right-0 z-50 h-full w-full sm:w-96 shadow-2xl transition-transform duration-200 ${open ? "translate-x-0" : "translate-x-full"}`}
+        style={inline ? {} : { backgroundColor: dark ? "rgba(40,40,40,0.95)" : "rgba(255,255,255,0.95)", borderLeft: "1px solid var(--border-light)" }}
+        aria-hidden={!open && !inline}
       >
+        {!inline && (
         <div className="p-4 flex items-center justify-between border-b border-[var(--border-light)]">
           <h3 className="text-lg font-semibold">Admin Panel</h3>
           <button
@@ -1898,8 +2119,9 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
             <CloseIcon />
           </button>
         </div>
+        )}
 
-        <div className="p-4 overflow-y-auto h-[calc(100%-64px)]">
+        <div className={inline ? "p-6 max-w-5xl mx-auto space-y-6" : "p-4 overflow-y-auto h-[calc(100%-64px)]"}>
           {/* Settings Section */}
           <div className="mb-8">
             <h4 className="text-md font-semibold mb-4">Settings</h4>
@@ -1908,7 +2130,7 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
                 <span className="text-sm">Allow New Account Creation</span>
                 <button
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${adminSettings.allowNewAccounts
-                    ? 'bg-indigo-600'
+                    ? 'bg-accent'
                     : 'bg-gray-300 dark:bg-gray-600'
                     }`}
                   onClick={() => updateAdminSettings({ allowNewAccounts: !adminSettings.allowNewAccounts })}
@@ -1931,21 +2153,21 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
                 placeholder="Name"
                 value={newUserForm.name}
                 onChange={(e) => setNewUserForm(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500 dark:placeholder-gray-400"
+                className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:placeholder-gray-400"
               />
               <input
                 type="text"
                 placeholder="Username"
                 value={newUserForm.email}
                 onChange={(e) => setNewUserForm(prev => ({ ...prev, email: e.target.value }))}
-                className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500 dark:placeholder-gray-400"
+                className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:placeholder-gray-400"
               />
               <input
                 type="password"
                 placeholder="Password"
                 value={newUserForm.password}
                 onChange={(e) => setNewUserForm(prev => ({ ...prev, password: e.target.value }))}
-                className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500 dark:placeholder-gray-400"
+                className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:placeholder-gray-400"
               />
               <div className="flex items-center">
                 <input
@@ -1960,7 +2182,7 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
               <button
                 type="submit"
                 disabled={isCreatingUser}
-                className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                className="w-full px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50"
               >
                 {isCreatingUser ? "Creating..." : "Create User"}
               </button>
@@ -2032,7 +2254,7 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
                   type="text"
                   value={editUserForm.name}
                   onChange={(e) => setEditUserForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500 dark:placeholder-gray-400"
+                  className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:placeholder-gray-400"
                   required
                 />
               </div>
@@ -2042,7 +2264,7 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
                   type="text"
                   value={editUserForm.email}
                   onChange={(e) => setEditUserForm(prev => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500 dark:placeholder-gray-400"
+                  className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:placeholder-gray-400"
                   required
                 />
               </div>
@@ -2052,7 +2274,7 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
                   type="password"
                   value={editUserForm.password}
                   onChange={(e) => setEditUserForm(prev => ({ ...prev, password: e.target.value }))}
-                  className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500 dark:placeholder-gray-400"
+                  className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Leave empty to keep current password"
                 />
               </div>
@@ -2077,7 +2299,7 @@ function AdminPanel({ open, onClose, dark, adminSettings, allUsers, newUserForm,
                 <button
                   type="submit"
                   disabled={isUpdatingUser}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50"
                 >
                   {isUpdatingUser ? "Updating..." : "Update User"}
                 </button>
@@ -2115,7 +2337,20 @@ function NotesUI({
   // new for sidebar
   openSidebar,
   activeTagFilter,
+  setTagFilter,
+  tagsWithCounts,
   sidebarPermanent,
+  // Admin Props
+  adminSettings,
+  allUsers,
+  newUserForm,
+  setNewUserForm,
+  updateAdminSettings,
+  createUser,
+  deleteUser,
+  updateUser,
+  showGenericConfirm,
+  showToast,
   sidebarWidth,
   // formatting
   formatComposer,
@@ -2157,8 +2392,17 @@ function NotesUI({
   // Settings panel
   openSettingsPanel,
   // AI props
-  localAiEnabled, aiResponse, setAiResponse, isAiLoading, aiLoadingProgress, onAiSearch
+  localAiEnabled, setLocalAiEnabled, aiResponse, setAiResponse, isAiLoading, aiLoadingProgress, onAiSearch,
+  // Settings props
+  alwaysShowSidebarOnWide, setAlwaysShowSidebarOnWide,
+  // Background props
+  backgroundImage, setBackgroundImage, backgroundOverlay, setBackgroundOverlay,
+  // Accent props
+  accentColor, setAccentColor,
+  // Transparency props
+  cardTransparency, setCardTransparency
 }) {
+  const [activeSection, setActiveSection] = useState('overview');
   // Multi-select color popover (local UI state)
   const multiColorBtnRef = useRef(null);
   const [showMultiColorPop, setShowMultiColorPop] = useState(false);
@@ -2182,11 +2426,57 @@ function NotesUI({
     }
   }, [headerMenuOpen, setHeaderMenuOpen]);
 
+  const dashboardTitle = activeSection === 'overview' 
+    ? (tagLabel || 'All Notes') 
+    : activeSection.charAt(0).toUpperCase() + activeSection.slice(1).replace('-', ' ');
+
+  const currentBg = useMemo(() => BACKGROUNDS.find(b => b.id === backgroundImage), [backgroundImage]);
+
   return (
-    <div
-      className="min-h-screen"
-      style={{ marginLeft: sidebarPermanent ? `${sidebarWidth}px` : '0px' }}
+    <>
+      {currentBg && (
+        <div className="fixed inset-0 z-[-1] pointer-events-none">
+          <img 
+            src={currentBg.paths.desktop}
+            srcSet={`${currentBg.paths.mobile} 800w, ${currentBg.paths.desktop} 1920w, ${currentBg.paths.xl} 3840w`}
+            sizes="100vw"
+            alt="Background"
+            className="w-full h-full object-cover animate-in fade-in duration-700"
+          />
+          {/* Overlay for Shade Mode */}
+          {backgroundOverlay && (
+             <div 
+               className="absolute inset-0 transition-opacity duration-700" 
+               style={{ 
+                 background: dark 
+                   ? `radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.2), transparent 40%), 
+                      radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.15), transparent 40%),
+                      linear-gradient(to bottom, #050505, #121212, #0a0a0a)`
+                   : `radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.15), transparent 25%), 
+                      radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.1), transparent 25%),
+                      linear-gradient(to bottom, #0f0c29, #302b63, #24243e)`,
+                 opacity: 0.85
+               }}
+             />
+          )}
+          {/* Optional Contrast Overlay (active if shade off, or on top for extra dark) */}
+          {dark && !backgroundOverlay && <div className="absolute inset-0 bg-black/40" />} 
+        </div>
+      )}
+    <DashboardLayout
+      activeSection={activeSection}
+      onNavigate={setActiveSection}
+      user={currentUser}
+      onSearch={setSearch}
+      tags={tagsWithCounts}
+      onTagSelect={setTagFilter}
+      activeTag={activeTagFilter}
+      isAdmin={currentUser?.is_admin}
+      title={dashboardTitle}
+      onSignOut={signOut}
     >
+      <div className="pb-20">
+      { activeSection === 'overview' && ( <>
       {/* Multi-select toolbar (floats above header when active) */}
       {multiMode && (
         <div className="p-3 sm:p-4 flex items-center justify-between sticky top-0 z-[25] glass-card mb-2" style={{ position: "sticky" }}>
@@ -2248,13 +2538,13 @@ function NotesUI({
       )}
 
       {/* Header */}
-      <header className="p-4 sm:p-6 flex justify-between items-center sticky top-0 z-20 glass-card mb-6">
+      <header className="hidden">
         <div className="flex items-center gap-3">
           {/* Hamburger - only show when sidebar is not permanent */}
           {!sidebarPermanent && (
             <button
               onClick={openSidebar}
-              className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-accent"
               title="Open tags"
               aria-label="Open tags"
             >
@@ -2273,7 +2563,7 @@ function NotesUI({
 
           <h1 className="hidden sm:block text-2xl sm:text-3xl font-bold">Glass Keep</h1>
           {activeTagFilter && (
-            <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-indigo-600/10 text-indigo-700 dark:text-indigo-300 border border-indigo-600/20">
+            <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-accent/10 text-accent dark:text-accent border border-accent/20">
               {tagLabel === "All Images" || tagLabel === "Archived Notes" ? tagLabel : `Tag: ${tagLabel}`}
             </span>
           )}
@@ -2291,7 +2581,7 @@ function NotesUI({
             <input
               type="text"
               placeholder={localAiEnabled ? "Search or Ask AI..." : "Search..."}
-              className={`w-full bg-transparent border border-[var(--border-light)] rounded-lg pl-4 ${localAiEnabled ? 'pr-14' : 'pr-8'} py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-500 dark:placeholder-gray-400`}
+              className={`w-full bg-transparent border border-[var(--border-light)] rounded-lg pl-4 ${localAiEnabled ? 'pr-14' : 'pr-8'} py-2 focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500 dark:placeholder-gray-400`}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -2305,7 +2595,7 @@ function NotesUI({
                 <button
                   type="button"
                   title="Ask AI"
-                  className="h-7 w-7 rounded-full flex items-center justify-center text-indigo-600 hover:bg-indigo-600/10 transition-colors"
+                  className="h-7 w-7 rounded-full flex items-center justify-center text-accent hover:bg-accent/10 transition-colors"
                   onClick={() => onAiSearch?.(search)}
                 >
                   <Sparkles />
@@ -2334,7 +2624,7 @@ function NotesUI({
           <button
             ref={headerBtnRef}
             onClick={() => setHeaderMenuOpen((v) => !v)}
-            className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800"
+            className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent dark:focus:ring-offset-gray-800"
             title="Menu"
             aria-haspopup="menu"
             aria-expanded={headerMenuOpen}
@@ -2452,15 +2742,15 @@ function NotesUI({
       {/* AI Response Box */}
       {localAiEnabled && (aiResponse || isAiLoading) && (
         <div className="px-4 sm:px-6 md:px-8 lg:px-12 mb-6">
-          <div className="max-w-2xl mx-auto glass-card rounded-xl shadow-lg p-5 border border-indigo-500/30 relative overflow-hidden bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-indigo-950/30 dark:to-purple-950/30">
+          <div className="max-w-2xl mx-auto glass-card rounded-xl shadow-lg p-5 border border-accent/30 relative overflow-hidden bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-indigo-950/30 dark:to-purple-950/30">
             {isAiLoading && (
-              <div className="absolute top-0 left-0 h-1 bg-indigo-500 transition-all duration-300"
+              <div className="absolute top-0 left-0 h-1 bg-accent transition-all duration-300"
                 style={{ width: aiLoadingProgress ? `${aiLoadingProgress}%` : '5%' }}
               />
             )}
             <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="text-indigo-600 dark:text-indigo-400" />
-              <h3 className="font-semibold text-indigo-700 dark:text-indigo-300">AI Assistant</h3>
+              <Sparkles className="text-accent dark:text-indigo-400" />
+              <h3 className="font-semibold text-accent dark:text-accent">AI Assistant</h3>
               {aiResponse && !isAiLoading && (
                 <button
                   onClick={() => { setAiResponse(null); setSearch(''); }}
@@ -2474,7 +2764,7 @@ function NotesUI({
             <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
               {isAiLoading ? (
                 <p className="animate-pulse text-gray-500 italic flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" />
+                  <span className="w-2 h-2 rounded-full bg-accent animate-bounce" />
                   AI Assistant is thinking...
                 </p>
               ) : (
@@ -2561,7 +2851,7 @@ function NotesUI({
                           onClick={addComposerItem}
                           disabled={!isOnline}
                           className={`px-3 py-1.5 rounded-lg whitespace-nowrap ${isOnline
-                            ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                            ? 'bg-accent text-white hover:bg-accent-hover'
                             : 'bg-gray-400 text-gray-200 cursor-not-allowed'
                             }`}
                         >
@@ -2647,7 +2937,7 @@ function NotesUI({
                           type="button"
                           onClick={() => setComposerType("text")}
                           className={`px-2 py-1 rounded-lg border text-sm ${composerType === "text"
-                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            ? 'bg-accent text-white border-accent'
                             : 'border-[var(--border-light)] hover:bg-black/5 dark:hover:bg-white/10'
                             }`}
                           title="Text note"
@@ -2658,7 +2948,7 @@ function NotesUI({
                           type="button"
                           onClick={() => setComposerType("checklist")}
                           className={`px-2 py-1 rounded-lg border text-sm ${composerType === "checklist"
-                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            ? 'bg-accent text-white border-accent'
                             : 'border-[var(--border-light)] hover:bg-black/5 dark:hover:bg-white/10'
                             }`}
                           title="Checklist"
@@ -2669,7 +2959,7 @@ function NotesUI({
                           type="button"
                           onClick={() => setComposerType("draw")}
                           className={`px-2 py-1 rounded-lg border text-sm ${composerType === "draw"
-                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            ? 'bg-accent text-white border-accent'
                             : 'border-[var(--border-light)] hover:bg-black/5 dark:hover:bg-white/10'
                             }`}
                           title="Drawing"
@@ -2683,7 +2973,7 @@ function NotesUI({
                         ref={colorBtnRef}
                         type="button"
                         onClick={() => setShowColorPop((v) => !v)}
-                        className="w-6 h-6 rounded-full border-2 border-[var(--border-light)] hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800 flex items-center justify-center"
+                        className="w-6 h-6 rounded-full border-2 border-[var(--border-light)] hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent dark:focus:ring-offset-gray-800 flex items-center justify-center"
                         title="Color"
                         style={{
                           backgroundColor: composerColor === "default" ? "transparent" : solid(bgFor(composerColor, dark)),
@@ -2750,8 +3040,8 @@ function NotesUI({
                       <button
                         onClick={addNote}
                         disabled={!isOnline}
-                        className={`px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800 transition-colors whitespace-nowrap flex-shrink-0 ${isOnline
-                          ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                        className={`px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent dark:focus:ring-offset-gray-800 transition-colors whitespace-nowrap flex-shrink-0 ${isOnline
+                          ? 'bg-accent text-white hover:bg-accent-hover'
                           : 'bg-gray-400 text-gray-200 cursor-not-allowed'
                           }`}
                       >
@@ -2802,6 +3092,7 @@ function NotesUI({
                     isOnline={isOnline}
                     onUpdateChecklistItem={onUpdateChecklistItem}
                     currentUser={currentUser}
+                    globalTransparency={cardTransparency}
                   />
                 ))}
               </div>
@@ -2845,6 +3136,7 @@ function NotesUI({
                     isOnline={isOnline}
                     onUpdateChecklistItem={onUpdateChecklistItem}
                     currentUser={currentUser}
+                    globalTransparency={cardTransparency}
                   />
                 ))}
               </div>
@@ -2874,7 +3166,97 @@ function NotesUI({
           )
         }
       </main >
-    </div >
+      </> )}
+
+      {activeSection === 'alerts' && (
+        <div className="p-10 flex flex-col items-center justify-center min-h-[50vh] text-center">
+            <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-4 text-red-400">
+               <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">No Active Alerts</h2>
+            <p className="text-gray-400 max-w-md">Your system is running smoothly. Any critical notifications will appear here.</p>
+        </div>
+      )}
+
+      {activeSection === 'health' && (
+        <div className="p-6">
+            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                 <svg className="w-6 h-6 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+                 System Status
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="glass-card p-6 rounded-2xl border-t-4 border-accent">
+                    <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1">CPU Load</h3>
+                    <div className="text-3xl font-bold text-white">12%</div>
+                    <div className="mt-4 w-full h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
+                        <div className="h-full bg-accent w-[12%] shadow-[0_0_10px_currentColor]" />
+                    </div>
+                </div>
+                <div className="glass-card p-6 rounded-2xl border-t-4 border-purple-500">
+                    <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1">Memory</h3>
+                    <div className="text-3xl font-bold text-white">42%</div>
+                    <div className="mt-4 w-full h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
+                        <div className="h-full bg-purple-500 w-[42%] shadow-[0_0_10px_currentColor]" />
+                    </div>
+                </div>
+                <div className="glass-card p-6 rounded-2xl border-t-4 border-emerald-500">
+                    <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1">Disk I/O</h3>
+                    <div className="text-3xl font-bold text-white">1.2 MB/s</div>
+                    <div className="mt-4 text-xs text-emerald-400 font-mono">READ/WRITE OPTIMAL</div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {activeSection === 'admin' && (
+         <AdminPanel 
+            inline={true} 
+            adminSettings={adminSettings}
+            allUsers={allUsers}
+            newUserForm={newUserForm}
+            setNewUserForm={setNewUserForm}
+            updateAdminSettings={updateAdminSettings}
+            createUser={createUser}
+            deleteUser={deleteUser}
+            updateUser={updateUser}
+            currentUser={currentUser}
+            showGenericConfirm={showGenericConfirm}
+            showToast={showToast}
+         />
+      )}
+
+      {activeSection === 'settings' && (
+        <SettingsPanel 
+          inline={true}
+          dark={dark} 
+          onExportAll={onExportAll} 
+          onImportAll={onImportAll} 
+          onImportGKeep={onImportGKeep} 
+          onImportMd={onImportMd} 
+          onDownloadSecretKey={onDownloadSecretKey}
+          alwaysShowSidebarOnWide={alwaysShowSidebarOnWide} 
+          setAlwaysShowSidebarOnWide={setAlwaysShowSidebarOnWide} 
+          localAiEnabled={localAiEnabled} 
+          setLocalAiEnabled={setLocalAiEnabled}
+          backgroundImage={backgroundImage}
+          setBackgroundImage={setBackgroundImage}
+          backgroundOverlay={backgroundOverlay}
+          setBackgroundOverlay={setBackgroundOverlay}
+          accentColor={accentColor}
+          setAccentColor={setAccentColor}
+          cardTransparency={cardTransparency}
+          setCardTransparency={setCardTransparency}
+          showGenericConfirm={showGenericConfirm} 
+          showToast={showToast}
+          // Dummy for now until wired up completely
+          open={true}
+          onClose={() => setActiveSection('overview')}
+        />
+      )}
+
+      </div>
+    </DashboardLayout>
+    </>
   );
 }
 
@@ -3019,38 +3401,21 @@ function AdminView({ dark }) {
 export default function App() {
   const [route, setRoute] = useState(window.location.hash || "#/login");
 
-  // auth session { token, user }
-  const [session, setSession] = useState(getAuth());
-  const token = session?.token;
-  const currentUser = session?.user || null;
-
-  // Theme
-  const [dark, setDark] = useState(false);
-
-  // Screen width for responsive behavior
-  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-
-  // Notes & search
-  const [notes, setNotes] = useState([]);
-  const [search, setSearch] = useState("");
-
-  // Tag filter & sidebar
-  const [tagFilter, setTagFilter] = useState(null); // null = all, ALL_IMAGES = only notes with images
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [alwaysShowSidebarOnWide, setAlwaysShowSidebarOnWide] = useState(() => {
-    try { return localStorage.getItem("sidebarAlwaysVisible") === "true"; } catch (e) { return false; }
-  });
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    try { return parseInt(localStorage.getItem("sidebarWidth")) || 288; } catch (e) { return 288; }
-  });
-
-  // Local AI
-  const [localAiEnabled, setLocalAiEnabled] = useState(() => {
-    try {
-      const stored = localStorage.getItem("localAiEnabled");
-      return stored === null ? false : stored === "true";
-    } catch (e) { return false; }
-  });
+  // Use custom hooks for auth, notes, and settings
+  const { session, token, currentUser, isAdmin, updateSession, logout } = useAuth();
+  const { notes, notesLoading, search, setSearch, tagFilter, setTagFilter, loadNotes, loadArchivedNotes, toggleArchiveNote, deleteNote, reorderNotes } = useNotes(token);
+  const { 
+    dark, 
+    backgroundImage, 
+    backgroundOverlay, 
+    accentColor, 
+    cardTransparency,
+    alwaysShowSidebarOnWide,
+    sidebarWidth,
+    localAiEnabled,
+    toggleDark,
+    setSettings
+  } = useSettings();
   const [aiResponse, setAiResponse] = useState(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiLoadingProgress, setAiLoadingProgress] = useState(null);
@@ -3085,6 +3450,7 @@ export default function App() {
   const [mTagList, setMTagList] = useState([]);
   const [tagInput, setTagInput] = useState("");
   const [mColor, setMColor] = useState("default");
+  const [mTransparency, setMTransparency] = useState(null); // null = use global default
   const [viewMode, setViewMode] = useState(true);
   const [mImages, setMImages] = useState([]);
   const [savingModal, setSavingModal] = useState(false);
@@ -3160,6 +3526,10 @@ export default function App() {
   const modalColorBtnRef = useRef(null);
   const [showModalColorPop, setShowModalColorPop] = useState(false);
 
+  // Modal transparency popover
+  const modalTransBtnRef = useRef(null);
+  const [showModalTransPop, setShowModalTransPop] = useState(false);
+
   // Image Viewer state (fullscreen)
   const [imgViewOpen, setImgViewOpen] = useState(false);
   const [imgViewIndex, setImgViewIndex] = useState(0);
@@ -3195,10 +3565,6 @@ export default function App() {
 
   // For code copy buttons in view mode
   const noteViewRef = useRef(null);
-
-  // Loading state for notes
-  const [notesLoading, setNotesLoading] = useState(false);
-  // Remove lazy loading state
 
   // -------- Multi-select state --------
   const [multiMode, setMultiMode] = useState(false);
@@ -3447,6 +3813,7 @@ export default function App() {
     if (!activeNoteObj) return false;
     if ((mTitle || "") !== (activeNoteObj.title || "")) return true;
     if ((mColor || "default") !== (activeNoteObj.color || "default")) return true;
+    if ((mTransparency || null) !== (activeNoteObj.transparency || null)) return true;
     const tagsA = JSON.stringify(mTagList || []);
     const tagsB = JSON.stringify(activeNoteObj.tags || []);
     if (tagsA !== tagsB) return true;
@@ -3462,7 +3829,7 @@ export default function App() {
       if (itemsA !== itemsB) return true;
     }
     return false;
-  }, [activeNoteObj, mTitle, mColor, mTagList, mImages, mType, mBody, mItems]);
+  }, [activeNoteObj, mTitle, mColor, mTransparency, mTagList, mImages, mType, mBody, mItems]);
 
   useEffect(() => {
     // Only close header kebab on outside click (modal kebab is handled by Popover)
@@ -3504,15 +3871,8 @@ export default function App() {
       localStorage.getItem("glass-keep-dark-mode") === "true" ||
       (!("glass-keep-dark-mode" in localStorage) &&
         window.matchMedia?.("(prefers-color-scheme: dark)").matches);
-    setDark(savedDark);
     document.documentElement.classList.toggle("dark", savedDark);
-  }, []);
-  const toggleDark = () => {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("glass-keep-dark-mode", String(next));
-  };
+  }, [dark, toggleDark]);
 
   // Close sidebar with Escape
   useEffect(() => {
@@ -3554,41 +3914,7 @@ export default function App() {
     }
     return Array.from(m.values());
   };
-  const persistNotesCache = (notes) => {
-    try {
-      localStorage.setItem(NOTES_CACHE_KEY, JSON.stringify(Array.isArray(notes) ? notes : []));
-      localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
-    } catch (e) {
-      console.error('Error caching notes:', e);
-    }
-  };
-  // Consistent ordering: pinned first, then by position (server-persisted DnD),
-  // fallback to updated_at/timestamp when position is missing
-  const sortNotesByRecency = (arr) => {
-    try {
-      const list = Array.isArray(arr) ? arr.slice() : [];
-      return list.sort((a, b) => {
-        const ap = a?.pinned ? 1 : 0;
-        const bp = b?.pinned ? 1 : 0;
-        if (ap !== bp) return bp - ap; // pinned first
-        const apos = Number.isFinite(+a?.position) ? +a.position : null;
-        const bpos = Number.isFinite(+b?.position) ? +b.position : null;
-        if (apos != null && bpos != null && !Number.isNaN(apos) && !Number.isNaN(bpos)) {
-          return bpos - apos; // higher position first (most recent/top)
-        }
-        const at = new Date(a?.updated_at || a?.timestamp || 0).getTime();
-        const bt = new Date(b?.updated_at || b?.timestamp || 0).getTime();
-        return bt - at; // fallback newest first
-      });
-    } catch {
-      return Array.isArray(arr) ? arr : [];
-    }
-  };
 
-
-
-
-  // Load notes
   const handleAiSearch = async (question) => {
     if (!question || question.trim().length < 3) return;
     setIsAiLoading(true);
@@ -3613,83 +3939,6 @@ export default function App() {
     }
   };
 
-  const loadNotes = async () => {
-    if (!token) return;
-    setNotesLoading(true);
-
-    try {
-      const data = await api("/notes", { token });
-      console.log("Notes loaded from server:", data);
-      const notesArray = Array.isArray(data) ? data : [];
-      setNotes(sortNotesByRecency(notesArray));
-      persistNotesCache(notesArray);
-    } catch (error) {
-      console.error("Error loading notes from server:", error);
-      // Try to load from cache as fallback
-      try {
-        const cachedData = localStorage.getItem(NOTES_CACHE_KEY);
-        if (cachedData) {
-          const cachedNotes = JSON.parse(cachedData);
-          setNotes(sortNotesByRecency(cachedNotes));
-        } else {
-          setNotes([]);
-        }
-      } catch (cacheError) {
-        console.error("Error loading from cache:", cacheError);
-        setNotes([]);
-      }
-    } finally {
-      setNotesLoading(false);
-    }
-  };
-
-  // Load archived notes
-  const loadArchivedNotes = async () => {
-    if (!token) return;
-    setNotesLoading(true);
-
-    console.log("Loading archived notes, checking cache...");
-    // First, try to load from cache immediately for better UX
-    let hasCachedData = false;
-    try {
-      const cachedData = localStorage.getItem(ARCHIVED_NOTES_CACHE_KEY);
-      if (cachedData) {
-        const cachedNotes = JSON.parse(cachedData);
-        console.log("Found cached archived notes:", cachedNotes.length);
-        setNotes(sortNotesByRecency(cachedNotes));
-        hasCachedData = true;
-      } else {
-        console.log("No cached archived notes found");
-      }
-    } catch (cacheError) {
-      console.error("Error loading archived notes from cache:", cacheError);
-    }
-
-    try {
-      const data = await api("/notes/archived", { token });
-      console.log("Archived notes loaded from server:", data);
-      const notesArray = Array.isArray(data) ? data : [];
-      setNotes(sortNotesByRecency(notesArray));
-
-      // Cache the data
-      try {
-        localStorage.setItem(ARCHIVED_NOTES_CACHE_KEY, JSON.stringify(notesArray));
-        localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
-        console.log("Cached", notesArray.length, "archived notes");
-      } catch (error) {
-        console.error("Error caching archived notes:", error);
-      }
-    } catch (error) {
-      console.error("Error loading archived notes from server:", error);
-      // If we don't have cached data, set empty array
-      if (!hasCachedData) {
-        console.log("No cached data and server error, setting empty array");
-        setNotes([]);
-      }
-    } finally {
-      setNotesLoading(false);
-    }
-  };
   useEffect(() => {
     if (!token) return;
 
@@ -4758,6 +5007,7 @@ export default function App() {
     setMImages(Array.isArray(n.images) ? n.images : []);
     setTagInput("");
     setMColor(n.color || "default");
+    setMTransparency(n.transparency || null); // null means use global default
 
     // Store initial state to detect if user actually edited
     initialModalStateRef.current = {
@@ -4766,6 +5016,7 @@ export default function App() {
       tags: Array.isArray(n.tags) ? n.tags : [],
       images: Array.isArray(n.images) ? n.images : [],
       color: n.color || "default",
+      transparency: n.transparency || null,
     };
 
     setViewMode(true);
@@ -4796,6 +5047,7 @@ export default function App() {
       tags: mTagList,
       images: mImages,
       color: mColor,
+      transparency: mTransparency,
     };
     // Compare all fields
     return (
@@ -4803,9 +5055,10 @@ export default function App() {
       initial.content !== current.content ||
       JSON.stringify(initial.tags) !== JSON.stringify(current.tags) ||
       JSON.stringify(initial.images) !== JSON.stringify(current.images) ||
-      initial.color !== current.color
+      initial.color !== current.color ||
+      initial.transparency !== current.transparency
     );
-  }, [activeId, mTitle, mBody, mTagList, mImages, mColor]);
+  }, [activeId, mTitle, mBody, mTagList, mImages, mColor, mTransparency]);
 
   // Save metadata (color, tags, images) immediately for collaborative notes
   // This works even in view mode since these are metadata changes, not content changes
@@ -4818,6 +5071,7 @@ export default function App() {
       tags: mTagList,
       images: mImages,
       color: mColor,
+      transparency: mTransparency,
       pinned: !!notes.find(n => String(n.id) === String(activeId))?.pinned,
     };
     const payload = { ...base, type: "text", content: mBody, items: [] };
@@ -4846,13 +5100,14 @@ export default function App() {
           tags: mTagList,
           images: mImages,
           color: mColor,
+          transparency: mTransparency,
         };
       }
     } catch (e) {
       console.error("Failed to save metadata:", e);
       // Don't show error toast to avoid interrupting user
     }
-  }, [activeId, mType, mTitle, mTagList, mImages, mColor, mBody, notes, token, currentUser, isCollaborativeNote, isOnline]);
+  }, [activeId, mType, mTitle, mTagList, mImages, mColor, mTransparency, mBody, notes, token, currentUser, isCollaborativeNote, isOnline]);
 
   // Auto-save for collaborative text notes - must be defined before useEffect that uses it
   const autoSaveCollaborativeNote = useCallback(async () => {
@@ -4871,6 +5126,7 @@ export default function App() {
         tags: mTagList,
         images: mImages,
         color: mColor,
+        transparency: mTransparency,
         pinned: !!notes.find(n => String(n.id) === String(activeId))?.pinned,
       };
       const payload = { ...base, type: "text", content: mBody, items: [] };
@@ -4895,25 +5151,26 @@ export default function App() {
         // Don't show error toast for auto-save failures to avoid interrupting user
       }
     }, 1000); // 1 second debounce
-  }, [activeId, mType, mTitle, mTagList, mImages, mColor, mBody, notes, token, currentUser, isCollaborativeNote, viewMode, hasNoteBeenModified]);
+  }, [activeId, mType, mTitle, mTagList, mImages, mColor, mTransparency, mBody, notes, token, currentUser, isCollaborativeNote, viewMode, hasNoteBeenModified]);
 
-  // Auto-save metadata (color, tags, images) immediately for collaborative notes
+  // Auto-save metadata (color, tags, images, transparency) immediately for collaborative notes
   // This works in both view and edit mode since these are metadata changes
   useEffect(() => {
     if (activeId && mType === "text" && isCollaborativeNote(activeId) && isOnline) {
-      // Only save if color, tags, or images changed (not title or body)
+      // Only save if color, tags, images, or transparency changed (not title or body)
       const initial = initialModalStateRef.current;
       if (initial) {
         const colorChanged = initial.color !== mColor;
+        const transparencyChanged = initial.transparency !== mTransparency;
         const tagsChanged = JSON.stringify(initial.tags) !== JSON.stringify(mTagList);
         const imagesChanged = JSON.stringify(initial.images) !== JSON.stringify(mImages);
 
-        if (colorChanged || tagsChanged || imagesChanged) {
+        if (colorChanged || transparencyChanged || tagsChanged || imagesChanged) {
           saveCollaborativeMetadata();
         }
       }
     }
-  }, [mColor, mTagList, mImages, activeId, mType, isCollaborativeNote, isOnline, saveCollaborativeMetadata]);
+  }, [mColor, mTransparency, mTagList, mImages, activeId, mType, isCollaborativeNote, isOnline, saveCollaborativeMetadata]);
 
   // Auto-save for collaborative text notes when content changes (title/body)
   useEffect(() => {
@@ -5020,6 +5277,7 @@ export default function App() {
       tags: mTagList,
       images: mImages,
       color: mColor,
+      transparency: mTransparency,
       pinned: !!notes.find(n => String(n.id) === String(activeId))?.pinned,
     };
     const payload =
@@ -5484,7 +5742,7 @@ export default function App() {
                 <div className="flex items-center gap-2 flex-none ml-auto">
                   {/* Collaboration button - always visible */}
                   <button
-                    className="rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 relative"
+                    className="rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-accent relative"
                     title="Collaborate"
                     onClick={async () => {
                       setCollaborationModalOpen(true);
@@ -5517,7 +5775,7 @@ export default function App() {
                     <>
                       <button
                         ref={modalFmtBtnRef}
-                        className="rounded-full p-2.5 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="rounded-full p-2.5 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-accent"
                         title="Formatting"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -5541,7 +5799,7 @@ export default function App() {
                     <>
                       <button
                         ref={modalMenuBtnRef}
-                        className="rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-accent"
                         title="More options"
                         onClick={(e) => { e.stopPropagation(); setModalMenuOpen((v) => !v); }}
                       >
@@ -5592,7 +5850,7 @@ export default function App() {
                   {/* Pin button - hidden when offline or in archived view */}
                   {isOnline && tagFilter !== 'ARCHIVED' && (
                     <button
-                      className="rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="rounded-full p-2 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-accent"
                       title="Pin/unpin"
                       onClick={() => activeId != null && togglePin(activeId, !(notes.find((n) => String(n.id) === String(activeId))?.pinned))}
                     >
@@ -5601,7 +5859,7 @@ export default function App() {
                   )}
 
                   <button
-                    className="rounded-full p-2.5 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="rounded-full p-2.5 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-accent"
                     title="Close"
                     onClick={closeModal}
                   >
@@ -5746,7 +6004,7 @@ export default function App() {
                             } catch (e) { }
                           }
                         }}
-                        className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        className="px-3 py-1.5 bg-accent text-white rounded-lg hover:bg-accent-hover"
                       >
                         Add
                       </button>
@@ -6006,7 +6264,7 @@ export default function App() {
                     ref={modalColorBtnRef}
                     type="button"
                     onClick={() => setShowModalColorPop((v) => !v)}
-                    className="w-6 h-6 rounded-full border-2 border-[var(--border-light)] hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800 flex items-center justify-center"
+                    className="w-6 h-6 rounded-full border-2 border-[var(--border-light)] hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent dark:focus:ring-offset-gray-800 flex items-center justify-center"
                     title="Color"
                     style={{
                       backgroundColor: mColor === "default" ? "transparent" : solid(bgFor(mColor, dark)),
@@ -6043,6 +6301,59 @@ export default function App() {
                 </>
               )}
 
+              {/* Transparency picker - hidden when offline */}
+              {isOnline && (
+                <>
+                  <button
+                    ref={modalTransBtnRef}
+                    type="button"
+                    onClick={() => setShowModalTransPop((v) => !v)}
+                    className={`px-2 py-1 rounded-lg border text-sm transition-all ${
+                      mTransparency 
+                        ? 'border-accent bg-accent/20 text-accent' 
+                        : 'border-[var(--border-light)] hover:bg-black/5 dark:hover:bg-white/10'
+                    }`}
+                    title="Card transparency (override global setting)"
+                  >
+                    💧
+                  </button>
+                  <Popover
+                    anchorRef={modalTransBtnRef}
+                    open={showModalTransPop}
+                    onClose={() => setShowModalTransPop(false)}
+                  >
+                    <div className={`fmt-pop ${dark ? "bg-gray-800 text-gray-100" : "bg-white text-gray-800"}`}>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">Card Transparency</div>
+                      <div className="flex flex-col gap-1 min-w-[140px]">
+                        <button
+                          className={`px-3 py-1.5 rounded text-left text-sm transition-colors ${
+                            mTransparency === null
+                              ? 'bg-accent/20 text-accent'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }`}
+                          onClick={() => { setMTransparency(null); setShowModalTransPop(false); }}
+                        >
+                          Use Default
+                        </button>
+                        {TRANSPARENCY_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            className={`px-3 py-1.5 rounded text-left text-sm transition-colors ${
+                              mTransparency === preset.id
+                                ? 'bg-accent/20 text-accent'
+                                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                            }`}
+                            onClick={() => { setMTransparency(preset.id); setShowModalTransPop(false); }}
+                          >
+                            {preset.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </Popover>
+                </>
+              )}
+
               {/* Add images - hidden when offline */}
               {isOnline && (
                 <>
@@ -6069,7 +6380,7 @@ export default function App() {
                 <button
                   onClick={saveModal}
                   disabled={savingModal}
-                  className={`px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 whitespace-nowrap ${savingModal ? "bg-indigo-400 text-white cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500"}`}
+                  className={`px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-800 whitespace-nowrap ${savingModal ? "bg-accent/60 text-white cursor-not-allowed" : "bg-accent text-white hover:bg-accent-hover focus:ring-accent"}`}
                 >
                   {savingModal ? "Saving..." : "Save"}
                 </button>
@@ -6197,7 +6508,7 @@ export default function App() {
                                 searchUsers(collaboratorUsername || "");
                               }}
                               placeholder="Search by username or email"
-                              className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-transparent"
+                              className="w-full px-3 py-2 border border-[var(--border-light)] rounded-lg focus:outline-none focus:ring-2 focus:ring-accent bg-transparent"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && collaboratorUsername.trim()) {
                                   // If dropdown is open and there's a filtered user, select the first one
@@ -6227,7 +6538,7 @@ export default function App() {
                               Cancel
                             </button>
                             <button
-                              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                              className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover"
                               onClick={async () => {
                                 if (collaboratorUsername.trim()) {
                                   await addCollaborator(collaboratorUsername.trim());
@@ -6393,7 +6704,7 @@ export default function App() {
             You must sign in as an admin to view this page.
           </p>
           <button
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover"
             onClick={() => (window.location.hash = "#/login")}
           >
             Go to Sign In
@@ -6473,7 +6784,7 @@ export default function App() {
         onResize={setSidebarWidth}
       />
 
-      {/* Settings Panel */}
+      {/* Settings Panel - Now rendered inline in DashboardLayout, keeping this commented in case valid uses remain 
       <SettingsPanel
         open={settingsPanelOpen}
         onClose={() => setSettingsPanelOpen(false)}
@@ -6490,6 +6801,7 @@ export default function App() {
         showGenericConfirm={showGenericConfirm}
         showToast={showToast}
       />
+      */}
 
       {/* Admin Panel */}
       {console.log("Rendering AdminPanel with:", { adminPanelOpen, adminSettings, allUsers: allUsers?.length })}
@@ -6564,10 +6876,34 @@ export default function App() {
         headerBtnRef={headerBtnRef}
         openSidebar={() => setSidebarOpen(true)}
         activeTagFilter={tagFilter}
+        setTagFilter={setTagFilter}
+        tagsWithCounts={tagsWithCounts}
+        // Admin Props
+        adminSettings={adminSettings}
+        allUsers={allUsers}
+        newUserForm={newUserForm}
+        setNewUserForm={setNewUserForm}
+        updateAdminSettings={updateAdminSettings}
+        createUser={createUser}
+        deleteUser={deleteUser}
+        updateUser={updateUser}
+        showGenericConfirm={showGenericConfirm}
+        showToast={showToast}
         sidebarPermanent={alwaysShowSidebarOnWide && windowWidth >= 700}
         sidebarWidth={sidebarWidth}
+        alwaysShowSidebarOnWide={alwaysShowSidebarOnWide}
+        setAlwaysShowSidebarOnWide={setAlwaysShowSidebarOnWide}
+        backgroundImage={backgroundImage}
+        setBackgroundImage={setBackgroundImage}
+        backgroundOverlay={backgroundOverlay}
+        setBackgroundOverlay={setBackgroundOverlay}
+        accentColor={accentColor}
+        setAccentColor={setAccentColor}
+        cardTransparency={cardTransparency}
+        setCardTransparency={setCardTransparency}
         // AI props
         localAiEnabled={localAiEnabled}
+        setLocalAiEnabled={setLocalAiEnabled}
         aiResponse={aiResponse}
         setAiResponse={setAiResponse}
         isAiLoading={isAiLoading}
@@ -6643,7 +6979,7 @@ export default function App() {
                 {genericConfirmConfig.cancelText || "Cancel"}
               </button>
               <button
-                className={`px-4 py-2 rounded-lg ${genericConfirmConfig.danger ? "bg-red-600 text-white hover:bg-red-700" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}
+                className={`px-4 py-2 rounded-lg ${genericConfirmConfig.danger ? "bg-red-600 text-white hover:bg-red-700" : "bg-accent text-white hover:bg-accent-hover"}`}
                 onClick={async () => {
                   setGenericConfirmOpen(false);
                   if (genericConfirmConfig.onConfirm) {

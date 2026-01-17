@@ -39,6 +39,7 @@ export default defineConfig({
       workbox: {
         navigateFallback: "/index.html",
         globPatterns: ["**/*.{js,css,html,ico,png,svg,webp}"],
+        globIgnores: ["**/backgrounds/**/*"],
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/.*\/api\/notes.*$/,

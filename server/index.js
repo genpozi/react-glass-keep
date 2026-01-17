@@ -9,6 +9,8 @@ const bcrypt = require("bcryptjs");
 const Database = require("better-sqlite3");
 const cors = require("cors");
 const crypto = require("crypto");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 // Transformers.js for server-side AI
 let pipeline;
@@ -45,6 +47,52 @@ const app = express();
 const PORT = Number(process.env.API_PORT || process.env.PORT || 8080);
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-please-change";
 const NODE_ENV = process.env.NODE_ENV || "development";
+
+// ---------- Validate Critical Environment Variables ----------
+(function validateEnv() {
+  // Warn if using default JWT secret in production
+  if (NODE_ENV === "production" && JWT_SECRET === "dev-secret-please-change") {
+    console.error("⚠️  ERROR: JWT_SECRET is not configured in production!");
+    console.error("   Please set JWT_SECRET environment variable to a strong, random value.");
+    console.error("   Example: JWT_SECRET=$(openssl rand -base64 32)");
+    process.exit(1);
+  }
+  
+  if (NODE_ENV === "production" && JWT_SECRET.length < 32) {
+    console.warn("⚠️  WARNING: JWT_SECRET is short. Recommended length is 32+ characters.");
+  }
+
+  console.log(`✓ Server starting in ${NODE_ENV} mode on port ${PORT}`);
+})();
+
+// ---------- Security Middleware ----------
+app.use(helmet({
+  contentSecurityPolicy: false, // Relax for dev, can be configured for production
+}));
+
+// ---------- Rate Limiting ----------
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 10 requests per windowMs for auth endpoints
+  message: "Too many authentication attempts, please try again after 15 minutes.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const secretKeyRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // limit each IP to 5 secret key login attempts per hour
+  message: "Too many secret key attempts, please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // general API rate limit
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ---------- Body parsing ----------
 app.use(express.json({ limit: "20mb" }));
@@ -119,6 +167,12 @@ CREATE TABLE IF NOT EXISTS note_collaborators (
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY(added_by) REFERENCES users(id) ON DELETE CASCADE,
   UNIQUE(note_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `);
 
@@ -462,7 +516,7 @@ app.get("/api/events", authFromQueryOrHeader, (req, res) => {
 });
 
 // ---------- Auth ----------
-app.post("/api/register", (req, res) => {
+app.post("/api/register", authRateLimiter, (req, res) => {
   // Check if new account creation is allowed
   if (!adminSettings.allowNewAccounts) {
     return res.status(403).json({ error: "New account creation is currently disabled." });
@@ -488,7 +542,7 @@ app.post("/api/register", (req, res) => {
   });
 });
 
-app.post("/api/login", (req, res) => {
+app.post("/api/login", authRateLimiter, (req, res) => {
   const { email, password } = req.body || {};
   const user = email ? getUserByEmail.get(email) : null;
   if (!user) return res.status(401).json({ error: "No account found for that email." });
@@ -528,7 +582,7 @@ app.post("/api/secret-key", auth, (req, res) => {
 });
 
 // Login with secret key
-app.post("/api/login/secret", (req, res) => {
+app.post("/api/login/secret", secretKeyRateLimiter, (req, res) => {
   const { key } = req.body || {};
   if (!key || typeof key !== "string" || key.length < 16) {
     return res.status(400).json({ error: "Invalid key." });
@@ -984,10 +1038,39 @@ function adminOnly(req, res, next) {
   next();
 }
 
-// Admin settings storage (in-memory for now, could be moved to DB)
-let adminSettings = {
-  allowNewAccounts: process.env.ALLOW_REGISTRATION === "true" || false
-};
+// ---------- Database Settings Helpers ----------
+const getSettingRow = db.prepare("SELECT value FROM settings WHERE key = ?");
+const setSettingRow = db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)");
+
+function getSetting(key, defaultValue) {
+  const row = getSettingRow.get(key);
+  if (!row) return defaultValue;
+  try {
+    return JSON.parse(row.value);
+  } catch {
+    return defaultValue;
+  }
+}
+
+function setSetting(key, value) {
+  const json = JSON.stringify(value);
+  setSettingRow.run(key, json, nowISO());
+  return value;
+}
+
+// Load admin settings from database (initialize if not found)
+function loadAdminSettings() {
+  let settings = getSetting("admin_settings", null);
+  if (!settings) {
+    settings = {
+      allowNewAccounts: process.env.ALLOW_REGISTRATION === "true" || false
+    };
+    setSetting("admin_settings", settings);
+  }
+  return settings;
+}
+
+let adminSettings = loadAdminSettings();
 
 // Get admin settings
 app.get("/api/admin/settings", auth, adminOnly, (_req, res) => {
@@ -1000,6 +1083,7 @@ app.patch("/api/admin/settings", auth, adminOnly, (req, res) => {
 
   if (typeof allowNewAccounts === 'boolean') {
     adminSettings.allowNewAccounts = allowNewAccounts;
+    setSetting("admin_settings", adminSettings);
   }
 
   res.json(adminSettings);

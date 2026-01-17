@@ -45,9 +45,11 @@ A sleek, Keep-style notes app with Markdown, checklists, images, tag chips, colo
   * Automatic conflict resolution — prevents stale data from overwriting recent edits.  
 * **Admin Panel**
 
-  * New Admin Panel Sidebar in 3 dots Dropdown with many features like Add new uesr, Toggle new account creation (**off by default**) ✅ NEW
-  * View **all users** with: Name, Email/Username, **Is Admin**, **Notes count**, **Storage used**, Created at
-  * **Delete user** (also deletes their notes; protected against deleting the last admin)
+  * **Access**: Now located in the **User Avatar Dropdown** menu (top right).
+  * Create new users, reset passwords, and manage permissions.
+  * Toggle whether new account sign-ups are allowed (off by default).
+  * View **all users** with: Name, Email/Username, **Is Admin**, **Notes count**, **Storage used**, Created at.
+  * **Delete user** (also deletes their notes; protected against deleting the last admin).
 * **Notes**
 
   * **Text notes** with Markdown (H1/H2/H3, bold, italic, strike, links, blockquote, inline/fenced code)
@@ -98,6 +100,13 @@ A sleek, Keep-style notes app with Markdown, checklists, images, tag chips, colo
 
   * Tailwind (v4) look & feel with glassmorphism
   * Dark/Light mode with persistence
+  * **Advanced Theming**: 
+    * **Theme Presets**: One-click configuration for "Neon Tokyo", "Zen Garden", etc. ✅ NEW
+    * **Custom Backgrounds**: Choose from a library of high-quality backgrounds (Optimized for Mobile/Desktop/4K).
+    * **Accent Colors**: 7 "Bioluminescent" colors (Neon, Rose, Emerald, etc.) to customize the UI.
+  * **Theme Overlay**: Smart blending mode for using any wallpaper while maintaining legibility.
+
+
   * Responsive header: hamburger + logo; "Glass Keep" title hidden on small screens
   * **Improved color picker** — circular color indicator showing selected color ✅ NEW
   * **Colorful emoji icons** — enhanced icons for checklist (✅), drawing (🖌️), and images (🖼️) ✅ NEW
